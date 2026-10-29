@@ -161,16 +161,18 @@ def create_app(
 
     # ------------------------------------------------------------------ santé
     @app.get("/healthz")
-    async def healthz(svc: Services = Depends(services)) -> ORJSONResponse:
-        return ORJSONResponse(
-            {
-                "status": "ok",
-                "cache": svc.geocoder.cache.name,
-                "providers": [p.name for p in svc.geocoder.providers],
-                "osrm": await svc.osrm.ping(),
-                "vision": svc.vision is not None,
-            }
-        )
+    async def healthz(deep: bool = False, svc: Services = Depends(services)) -> ORJSONResponse:
+        """Contrôle de santé. Léger par défaut (appelé toutes les quelques secondes par l'hébergeur) ;
+        `?deep=1` teste aussi le moteur routier, sans que l'hébergeur ne martèle un OSRM public."""
+        body = {
+            "status": "ok",
+            "cache": svc.geocoder.cache.name,
+            "providers": [p.name for p in svc.geocoder.providers],
+            "vision": svc.vision is not None,
+        }
+        if deep:
+            body["osrm"] = await svc.osrm.ping()
+        return ORJSONResponse(body)
 
     # ------------------------------------------------------------------ WebSocket de scan
     @app.websocket("/ws/scan")
@@ -274,6 +276,10 @@ def create_app(
             "cache_hits": batch.cache_hits,
             "unresolved": batch.unresolved,
             "synthetic": sum(1 for r in batch.results if r is not None and r.point.precision == "synthetic"),
+            # position du centre du code postal ou fictive : la marche entre portes n'a alors pas de sens
+            "approximate": sum(
+                1 for r in batch.results if r is not None and r.point.precision in ("synthetic", "postcode")
+            ),
         }
         body["timings_ms"].update(
             {

@@ -13,6 +13,7 @@ from geocoder_uk import (
     IdealPostcodesProvider,
     MemoryCache,
     OSPlacesProvider,
+    PostcodesIoProvider,
     RedisCache,
     StaticProvider,
     SyntheticProvider,
@@ -207,3 +208,66 @@ async def test_create_cache_falls_back_to_memory(free_port):
     settings = Settings(redis_url=f"redis://127.0.0.1:{free_port}/0")
     cache = await create_cache(settings)
     assert cache.name == "memory"
+
+
+# --------------------------------------------------------------------- postcodes.io (repli gratuit)
+async def test_postcodes_io_returns_centroid_flagged_as_postcode_precision():
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(str(request.url))
+        if "ZZ" in str(request.url):
+            return httpx.Response(404, json={"status": 404, "error": "Postcode not found"})
+        return httpx.Response(200, json={"status": 200, "result": {"postcode": "S43 4FX", "latitude": 53.2751, "longitude": -1.2535}})
+
+    async with mock_client(handler) as client:
+        geo = GeocoderUK(MemoryCache(), [PostcodesIoProvider(client, 1.0)])
+        a = await geo.geocode(addr("S43 4FX", "23"))
+        b = await geo.geocode(addr("S43 4FX", "25"))  # autre maison, même code postal : pas de nouvel appel HTTP
+        missing = await geo.geocode(addr("LS6 1AB", "1"))  # code postal valide mais inconnu de l'API
+    assert a.point.precision == "postcode" and a.point.source == "postcodes_io"
+    assert (a.point.lat, a.point.lon) == (53.2751, -1.2535) and not a.cached
+    assert b.point.lat == a.point.lat and len([c for c in calls if "S434FX" in c]) == 1
+    assert missing is not None  # LS61AB répond 200 dans ce faux serveur
+    async with mock_client(handler) as client:
+        geo = GeocoderUK(MemoryCache(), [PostcodesIoProvider(client, 1.0)])
+        assert await geo.geocode(addr("BS1 1ZZ", "1")) is None  # 404 : rien
+
+
+async def test_postcodes_io_is_never_written_to_the_cache_so_a_real_key_can_replace_it():
+    cache = MemoryCache()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"result": {"latitude": 53.0, "longitude": -1.0}})
+
+    async with mock_client(handler) as client:
+        approx = GeocoderUK(cache, [PostcodesIoProvider(client, 1.0)])
+        await approx.geocode(addr("LS6 1AB", "14"))
+        precise = GeocoderUK(cache, [StaticProvider({"LS61AB:14": (53.8123, -1.5123)})])
+        res = await precise.geocode(addr("LS6 1AB", "14"))
+    assert res.point.source == "static" and not res.cached
+
+
+async def test_postcodes_io_network_error_falls_through_to_next_provider():
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("offline")
+
+    async with mock_client(handler) as client:
+        geo = GeocoderUK(MemoryCache(), [PostcodesIoProvider(client, 1.0), SyntheticProvider()])
+        res = await geo.geocode(addr("LS6 1AB", "14"))
+    assert res.point.source == "synthetic"
+
+
+def test_build_providers_order_puts_the_free_fallback_after_paid_ones():
+    from geocoder_uk import build_providers
+
+    async def go():
+        async with httpx.AsyncClient() as client:
+            full = Settings(ideal_postcodes_api_key="k", google_maps_api_key="g", allow_synthetic_geocoding=True)
+            assert [p.name for p in build_providers(full, client)] == ["ideal_postcodes", "google_rooftop", "postcodes_io", "synthetic"]
+            prod = Settings(app_env="production", allow_synthetic_geocoding=False)
+            assert [p.name for p in build_providers(prod, client)] == ["postcodes_io"]
+            off = Settings(app_env="production", allow_synthetic_geocoding=False, postcodes_io_enabled=False)
+            assert build_providers(off, client) == []
+
+    asyncio.run(go())

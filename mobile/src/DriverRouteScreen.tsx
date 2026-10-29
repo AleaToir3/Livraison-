@@ -20,7 +20,6 @@ import {
   useColorScheme,
 } from 'react-native';
 
-import { config } from './config';
 import { ApiError, optimizeRoute } from './routeApi';
 import { parcelSignature } from './routeBody';
 import {
@@ -34,7 +33,7 @@ import {
   toggleDelivery,
   type Progress,
 } from './routeProgress';
-import { parcelStore, useParcels } from './stores';
+import { parcelStore, settingsStore, useParcels, useSettings } from './stores';
 import type { ParkingCluster, RouteResponse } from './types';
 
 const STORAGE_KEY = 'route:v1';
@@ -73,6 +72,7 @@ export interface DriverRouteScreenProps {
 export function DriverRouteScreen({ onBack }: DriverRouteScreenProps): React.JSX.Element {
   const c = palette(useColorScheme() === 'dark');
   const parcels = useParcels();
+  const { depot } = useSettings();
   const signature = useMemo(() => parcelSignature(parcels), [parcels]);
   const [load, setLoad] = useState<Load>({ state: 'loading' });
   const [progress, setProgress] = useState<Progress>(EMPTY_PROGRESS);
@@ -81,7 +81,7 @@ export function DriverRouteScreen({ onBack }: DriverRouteScreenProps): React.JSX
   const compute = useCallback(async () => {
     setLoad({ state: 'loading' });
     try {
-      const route = await optimizeRoute(parcels, config.depot);
+      const route = await optimizeRoute(parcels, settingsStore.getSnapshot().depot);
       setProgress(EMPTY_PROGRESS);
       setLoad({ state: 'ready', route });
     } catch (error) {
@@ -217,7 +217,19 @@ export function DriverRouteScreen({ onBack }: DriverRouteScreenProps): React.JSX
           listRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: true })
         }
         ListHeaderComponent={
-          load.route.unresolved.length > 0 ? (
+          <>
+            {(load.route.geocode?.approximate ?? 0) > 0 ? (
+              <View style={[styles.warnBox, { borderColor: c.accent, backgroundColor: c.card }]}>
+                <Text style={[styles.warnTitle, { color: c.text }]}>
+                  {load.route.geocode!.approximate} position(s) approximative(s)
+                </Text>
+                <Text style={[styles.body, { color: c.sub }]}>
+                  Ces colis sont placés au centre de leur code postal, pas devant la porte. L'ordre de la tournée reste
+                  utile, mais la marche entre portes n'est pas fiable. Une clé d'adresses précises est à renseigner sur le serveur.
+                </Text>
+              </View>
+            ) : null}
+          {load.route.unresolved.length > 0 ? (
             <View style={[styles.warnBox, { borderColor: c.warn, backgroundColor: c.card }]}>
               <Text style={[styles.warnTitle, { color: c.warn }]}>
                 {load.route.unresolved.length} colis non localisé(s), exclus de la tournée
@@ -230,7 +242,8 @@ export function DriverRouteScreen({ onBack }: DriverRouteScreenProps): React.JSX
                 <Text style={{ color: c.warn, fontWeight: '700', fontSize: 16 }}>Retirer de la liste et recalculer</Text>
               </Pressable>
             </View>
-          ) : null
+          ) : null}
+          </>
         }
         renderItem={({ item }) => (
           <ClusterCard
@@ -246,11 +259,11 @@ export function DriverRouteScreen({ onBack }: DriverRouteScreenProps): React.JSX
           <View style={[styles.card, { backgroundColor: c.card, borderColor: done ? c.ok : c.line }]}>
             <Text style={[styles.cardTitle, { color: c.text }]}>{done ? 'Tournée terminée' : 'Puis'} : retour au dépôt</Text>
             <Text style={[styles.body, { color: c.sub }]}>
-              {config.depot.label} · {formatDuration(load.route.plan.drive_back_s)} de route
+              {depot.label} · {formatDuration(load.route.plan.drive_back_s)} de route
             </Text>
             <Pressable
               accessibilityRole="button"
-              onPress={() => openNavigation(config.depot.lat, config.depot.lon)}
+              onPress={() => openNavigation(depot.lat, depot.lon)}
               style={[styles.smallButton, { borderColor: c.line }]}
             >
               <Text style={{ color: c.text, fontWeight: '700', fontSize: 16 }}>Naviguer vers le dépôt</Text>

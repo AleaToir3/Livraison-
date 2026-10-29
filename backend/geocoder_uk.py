@@ -402,6 +402,57 @@ class GoogleRooftopProvider:
         return {key: GeoPoint(lat, lon, self.name, "rooftop", None)}
 
 
+class PostcodesIoProvider:
+    """postcodes.io (gratuit, sans clé) : renvoie le CENTRE du code postal, jamais la porte.
+
+    Sert de repli pour tester sans abonnement : la précision est étiquetée `postcode` (≈ 15 maisons, jusqu'à
+    ~100 m d'écart). Résultat non mis en cache Redis (une vraie clé UPRN doit pouvoir le remplacer) ; une
+    mémoire locale évite de rappeler l'API pour chaque colis du même code postal.
+    """
+
+    name = "postcodes_io"
+    postcode_level = False  # un point par adresse demandée ; la mémoire ci-dessous évite les appels répétés
+    cacheable = False
+    BASE_URL = "https://api.postcodes.io/postcodes/"
+    MEMO_TTL_S = 24 * 3600
+    MEMO_MAX = 5000
+
+    def __init__(self, client: httpx.AsyncClient, timeout_s: float) -> None:
+        self._client = client
+        self._timeout = timeout_s
+        self._memo: dict[str, tuple[float, tuple[float, float] | None]] = {}
+
+    async def lookup(self, address: ParsedAddress) -> dict[str, GeoPoint]:
+        key, postcode = address.cache_key, address.postcode
+        if key is None or postcode is None:
+            return {}
+        now = time.monotonic()
+        hit = self._memo.get(postcode)
+        if hit is not None and hit[0] > now:
+            coords = hit[1]
+        else:
+            coords = await self._fetch(postcode)
+            if len(self._memo) >= self.MEMO_MAX:
+                self._memo.pop(next(iter(self._memo)))
+            self._memo[postcode] = (now + self.MEMO_TTL_S, coords)
+        if coords is None:
+            return {}
+        return {key: GeoPoint(coords[0], coords[1], self.name, "postcode", None)}
+
+    async def _fetch(self, postcode: str) -> tuple[float, float] | None:
+        try:
+            resp = await self._client.get(self.BASE_URL + quote(compact_postcode(postcode)), timeout=self._timeout)
+            if resp.status_code == 404:
+                return None
+            resp.raise_for_status()
+            result = orjson.loads(resp.content).get("result") or {}
+        except (httpx.HTTPError, ValueError) as exc:
+            log.warning("%s: échec (%s)", self.name, exc.__class__.__name__)
+            return None
+        lat, lon = _float(result.get("latitude")), _float(result.get("longitude"))
+        return (lat, lon) if lat is not None and lon is not None else None
+
+
 # Centroïdes approximatifs des zones postales les plus courantes (point d'ancrage du fallback synthétique).
 _AREA_CENTROIDS: dict[str, tuple[float, float]] = {
     "LS": (53.8008, -1.5491), "M": (53.4808, -2.2426), "B": (52.4862, -1.8904),
@@ -512,6 +563,8 @@ def build_providers(settings: Settings, client: httpx.AsyncClient) -> list[Geoco
         providers.append(OSPlacesProvider(client, settings.os_places_api_key, settings.geocode_timeout_s))
     if settings.google_maps_api_key:
         providers.append(GoogleRooftopProvider(client, settings.google_maps_api_key, settings.geocode_timeout_s))
+    if settings.postcodes_io_enabled:
+        providers.append(PostcodesIoProvider(client, settings.geocode_timeout_s))
     if settings.allow_synthetic_geocoding:
         providers.append(SyntheticProvider())
     if not providers:

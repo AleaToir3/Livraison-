@@ -75,6 +75,8 @@ class Settings:
     os_places_api_key: str = ""
     google_maps_api_key: str = ""
     geocode_timeout_s: float = 0.8
+    # Repli gratuit : position du CENTRE du code postal (précision "postcode", ~15 maisons), sans clé API.
+    postcodes_io_enabled: bool = True
     # Si aucun fournisseur réel ne répond, un point synthétique déterministe est
     # renvoyé (tests, démo). Jamais activé par défaut en production.
     allow_synthetic_geocoding: bool = True
@@ -119,6 +121,7 @@ class Settings:
             os_places_api_key=_env_str("OS_PLACES_API_KEY"),
             google_maps_api_key=_env_str("GOOGLE_MAPS_API_KEY"),
             geocode_timeout_s=_env_float("GEOCODE_TIMEOUT_S", 0.8),
+            postcodes_io_enabled=_env_bool("POSTCODES_IO_ENABLED", True),
             allow_synthetic_geocoding=_env_bool(
                 "ALLOW_SYNTHETIC_GEOCODING", app_env.lower() != "production"
             ),

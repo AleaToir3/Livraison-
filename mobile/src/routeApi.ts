@@ -1,5 +1,6 @@
-import { config, httpHeaders } from './config';
 import { buildOptimizeBody } from './routeBody';
+import { authHeaders, type Settings } from './settings';
+import { settingsStore } from './stores';
 import type { Depot, ExtractImageResponse, Parcel, RouteResponse } from './types';
 
 export class ApiError extends Error {
@@ -11,22 +12,26 @@ export class ApiError extends Error {
   }
 }
 
-async function call<T>(path: string, init: RequestInit, timeoutMs: number): Promise<T> {
+async function request<T>(settings: Settings, path: string, init: RequestInit, timeoutMs: number): Promise<T> {
+  if (!settings.serverUrl) throw new ApiError("Serveur non configuré : ouvrez les Réglages", null);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(`${config.httpBaseUrl.replace(/\/+$/, '')}${path}`, { ...init, signal: controller.signal });
+    const response = await fetch(`${settings.serverUrl}${path}`, { ...init, signal: controller.signal });
     if (!response.ok) {
       let detail = `HTTP ${response.status}`;
-      try {
-        const body = (await response.json()) as { detail?: unknown };
-        if (typeof body.detail === 'string') detail = body.detail;
-        else if (body.detail && typeof body.detail === 'object') {
-          const d = body.detail as { message?: string; kind?: string };
-          detail = d.message ?? d.kind ?? detail;
+      if (response.status === 401) detail = 'clé API refusée : vérifiez les Réglages';
+      else {
+        try {
+          const body = (await response.json()) as { detail?: unknown };
+          if (typeof body.detail === 'string') detail = body.detail;
+          else if (body.detail && typeof body.detail === 'object') {
+            const d = body.detail as { message?: string; kind?: string };
+            detail = d.message ?? d.kind ?? detail;
+          }
+        } catch {
+          /* corps non JSON */
         }
-      } catch {
-        /* corps non JSON */
       }
       throw new ApiError(detail, response.status);
     }
@@ -41,27 +46,76 @@ async function call<T>(path: string, init: RequestInit, timeoutMs: number): Prom
 }
 
 /** Optimise la tournée : géocodage groupé (cache), matrice hybride, OR-Tools, ParkingClusters. */
-export function optimizeRoute(parcels: readonly Parcel[], depot: Depot = config.depot): Promise<RouteResponse> {
-  return call<RouteResponse>(
+export function optimizeRoute(parcels: readonly Parcel[], depot?: Depot): Promise<RouteResponse> {
+  const settings = settingsStore.getSnapshot();
+  return request<RouteResponse>(
+    settings,
     '/api/v1/optimize-route',
     {
       method: 'POST',
-      headers: httpHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify(buildOptimizeBody(parcels, depot)),
+      headers: authHeaders(settings, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify(buildOptimizeBody(parcels, depot ?? settings.depot)),
     },
-    15000,
+    20000,
   );
 }
 
 /** Chemin lent : le ROI WebP part tel quel (octets bruts) vers Gemini via le backend. */
 export function extractImage(webp: Uint8Array): Promise<ExtractImageResponse> {
-  return call<ExtractImageResponse>(
+  const settings = settingsStore.getSnapshot();
+  return request<ExtractImageResponse>(
+    settings,
     '/api/v1/extract-image',
     {
       method: 'POST',
-      headers: httpHeaders({ 'Content-Type': 'image/webp' }),
+      headers: authHeaders(settings, { 'Content-Type': 'image/webp' }),
       body: webp as unknown as RequestInit['body'],
     },
-    10000,
+    12000,
   );
+}
+
+export interface ServerCheck {
+  reachable: boolean;
+  /** null tant que le serveur n'a pas répondu ; false si la clé est refusée. */
+  keyAccepted: boolean | null;
+  providers: string[];
+  vision: boolean;
+  error?: string;
+  ms: number;
+}
+
+/**
+ * Bouton « Tester la connexion » : joint le serveur (`/healthz`), puis vérifie la clé en appelant un point
+ * protégé avec un corps invalide (401 = clé refusée ; toute autre réponse = clé acceptée).
+ */
+export async function checkServer(serverUrl: string, apiKey: string): Promise<ServerCheck> {
+  const t0 = Date.now();
+  const settings: Settings = { serverUrl, apiKey, depot: { lat: 0, lon: 0, label: '' } };
+  let health: { providers?: string[]; vision?: boolean };
+  try {
+    health = await request<typeof health>(settings, '/healthz', { method: 'GET' }, 15000);
+  } catch (error) {
+    return {
+      reachable: false,
+      keyAccepted: null,
+      providers: [],
+      vision: false,
+      error: error instanceof ApiError ? error.message : 'erreur inattendue',
+      ms: Date.now() - t0,
+    };
+  }
+  let keyAccepted = true;
+  try {
+    await request(settings, '/api/v1/extract-image', { method: 'POST', headers: authHeaders(settings), body: 'x' }, 10000);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 401) keyAccepted = false;
+  }
+  return {
+    reachable: true,
+    keyAccepted,
+    providers: health.providers ?? [],
+    vision: !!health.vision,
+    ms: Date.now() - t0,
+  };
 }

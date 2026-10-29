@@ -1,0 +1,40 @@
+# Render « Blueprint » : crée le serveur en un clic (New > Blueprint > ce dépôt).
+# Docs : https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: uk-last-mile-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    branch: claude/uk-delivery-route-optimizer-ginh31
+    region: frankfurt # la plus proche du Royaume-Uni parmi les régions Render
+    plan: starter # 512 Mo : le serveur utilise ~250 Mo (mesuré). Le plan gratuit s'endort : à éviter pour des tests.
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: APP_ENV
+        value: production
+      # Clé générée par Render : à copier dans l'app (Réglages > Clé API). Dashboard > le service > Environment.
+      - key: API_KEY
+        generateValue: true
+      # Serveur de démonstration public d'OSRM : suffit pour quelques testeurs, pas pour du volume.
+      - key: OSRM_URL
+        value: https://router.project-osrm.org
+      - key: REDIS_URL
+        value: "" # vide = cache en mémoire (suffisant avec 1 worker)
+      - key: UVICORN_WORKERS
+        value: "1"
+      - key: SOLVER_WORKERS
+        value: "2"
+      # 0,5 CPU partagé entre 2 résolutions : on laisse un peu plus de temps au solveur (le cahier des charges dit 150 ms).
+      - key: SOLVER_TIME_LIMIT_MS
+        value: "300"
+      # À renseigner dans le dashboard (jamais dans Git) :
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: IDEAL_POSTCODES_API_KEY
+        sync: false
+      - key: OS_PLACES_API_KEY
+        sync: false
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false

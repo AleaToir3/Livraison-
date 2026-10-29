@@ -200,23 +200,15 @@ def test_optimize_route_all_unresolved_and_osrm_down():
         assert client.post("/api/v1/optimize-route", json=route_payload(3)).status_code == 503
 
 
-def test_healthz():
+def test_healthz_is_light_by_default_and_deep_on_demand():
     with client_for(vision=stub_vision()) as client:
-        body = client.get("/healthz").json()
-    assert body == {"status": "ok", "cache": "memory", "providers": ["synthetic"], "osrm": True, "vision": True}
+        light = client.get("/healthz").json()
+        deep = client.get("/healthz?deep=1").json()
+    assert light == {"status": "ok", "cache": "memory", "providers": ["synthetic"], "vision": True}
+    assert deep == {**light, "osrm": True}
 
 
-def test_unit_only_address_is_resolved_from_sub_building_and_street():
-    """« UNIT 4, MILL INDUSTRIAL ESTATE » n'a ni numéro ni nom de maison : f + s identifient le bâtiment."""
-    static = StaticProvider({"LS115AB:UNIT-4-MILL-INDUSTRIAL-ESTATE": (53.78, -1.52)})
-    with client_for(providers=[static]) as client:
-        with client.websocket_connect("/ws/scan") as ws:
-            ws.send_text('{"i":9,"p":"LS115AB","b":"","f":"UNIT 4","s":"MILL INDUSTRIAL ESTATE"}')
-            reply = orjson.loads(ws.receive_text())
-            assert reply["ok"] == 1 and reply["k"] == "LS115AB:UNIT-4-MILL-INDUSTRIAL-ESTATE"
-        payload = {
-            "depot": {"lat": 53.8, "lon": -1.55},
-            "stops": [{"id": "u", "postcode": "LS11 5AB", "sub_building": "UNIT 4", "street": "MILL INDUSTRIAL ESTATE"}],
-        }
-        body = client.post("/api/v1/optimize-route", json=payload).json()
-    assert body["unresolved"] == [] and body["plan"]["totals"]["parcels"] == 1
+def test_optimize_route_reports_approximate_positions():
+    with client_for() as client:  # le fournisseur synthétique renvoie des points fictifs
+        body = client.post("/api/v1/optimize-route", json=route_payload(4)).json()
+    assert body["geocode"]["approximate"] == 4 and body["geocode"]["synthetic"] == 4

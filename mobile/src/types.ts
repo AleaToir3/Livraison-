@@ -119,5 +119,6 @@ export interface RouteResponse {
   };
   depot: Depot;
   unresolved: string[];
+  geocode?: { requested: number; cache_hits: number; unresolved: number; synthetic: number; approximate?: number };
   timings_ms: Record<string, number>;
 }

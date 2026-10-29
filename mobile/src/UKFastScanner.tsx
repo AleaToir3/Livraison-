@@ -25,6 +25,7 @@ import { useTextRecognition } from 'react-native-vision-camera-text-recognition'
 import { useRunOnJS } from 'react-native-worklets-core';
 
 import { config } from './config';
+import { textInGuide, type OcrBlock } from './ocrRegion';
 import { cropSnapshotToWebp, type RoiRect, type ViewSize } from './roiEncoder';
 import { extractImage } from './routeApi';
 import { buildScanRequest, buildingToken } from './scanPayload';
@@ -47,6 +48,7 @@ export interface UKFastScannerProps {
   /** false quand l'écran n'est pas visible : la caméra et l'OCR sont alors coupés. */
   active: boolean;
   onOpenRoute: () => void;
+  onOpenSettings: () => void;
 }
 
 const STATUS_LABEL: Record<SocketStatus, { text: string; color: string }> = {
@@ -55,7 +57,7 @@ const STATUS_LABEL: Record<SocketStatus, { text: string; color: string }> = {
   closed: { text: 'Hors ligne : scans mis en file', color: '#d93025' },
 };
 
-export function UKFastScanner({ socket, active, onOpenRoute }: UKFastScannerProps): React.JSX.Element {
+export function UKFastScanner({ socket, active, onOpenRoute, onOpenSettings }: UKFastScannerProps): React.JSX.Element {
   const parcels = useParcels();
   const { hasPermission, requestPermission } = useCameraPermission();
   const device = useCameraDevice('back');
@@ -69,6 +71,7 @@ export function UKFastScanner({ socket, active, onOpenRoute }: UKFastScannerProp
   const [torch, setTorch] = useState(false);
   const [busy, setBusy] = useState(false);
   const [hint, setHint] = useState<string | null>(null);
+  const [zoomFactor, setZoomFactor] = useState(1);
   const busyRef = useRef(false);
   const viewRef = useRef(view);
   viewRef.current = view;
@@ -194,6 +197,9 @@ export function UKFastScanner({ socket, active, onOpenRoute }: UKFastScannerProp
   );
   const onOcrText = useRunOnJS(handleOcrText, [handleOcrText]);
   const ocrFps = config.ocrFps;
+  // Le livreur zoome sur l'adresse : l'OCR ne doit lire que le cadre jaune, pas l'étiquette d'un colis voisin.
+  const guideBox = useMemo(() => guideRect(view), [view]);
+  const viewSize = useMemo(() => ({ width: view.width, height: view.height }), [view]);
 
   const frameProcessor = useFrameProcessor(
     (frame) => {
@@ -203,13 +209,14 @@ export function UKFastScanner({ socket, active, onOpenRoute }: UKFastScannerProp
         // runAsync : l'OCR n'occupe pas le thread du preview ; si l'OCR est en retard, les images sont ignorées.
         runAsync(frame, () => {
           'worklet';
-          const result = scanText(frame) as unknown as { resultText?: string } | null | undefined;
-          const text = result?.resultText;
-          if (text && text.length > 4) onOcrText(text);
+          const result = scanText(frame) as unknown as { resultText?: string; blocks?: OcrBlock[] } | null | undefined;
+          if (!result?.resultText) return;
+          const text = textInGuide(result.blocks, result.resultText, { width: frame.width, height: frame.height }, viewSize, guideBox);
+          if (text.length > 4) onOcrText(text);
         });
       });
     },
-    [scanText, onOcrText, ocrFps],
+    [scanText, onOcrText, ocrFps, viewSize, guideBox],
   );
 
   const onLayout = useCallback((e: LayoutChangeEvent) => {
@@ -237,7 +244,7 @@ export function UKFastScanner({ socket, active, onOpenRoute }: UKFastScannerProp
     );
   }
 
-  const guide = guideRect(view);
+  const guide = guideBox;
   const recent = parcels.slice(-3).reverse();
   const status = STATUS_LABEL[socketStatus];
 
@@ -253,10 +260,29 @@ export function UKFastScanner({ socket, active, onOpenRoute }: UKFastScannerProp
         pixelFormat="yuv"
         video // requis par takeSnapshot() sur iOS
         torch={torch ? 'on' : 'off'}
+        zoom={Math.min(device.maxZoom, Math.max(device.minZoom, device.neutralZoom * zoomFactor))}
         enableZoomGesture
       />
 
       <View pointerEvents="none" style={[styles.guide, { left: guide.x, top: guide.y, width: guide.width, height: guide.height }]} />
+
+      <Pressable accessibilityRole="button" accessibilityLabel="Réglages" onPress={onOpenSettings} style={styles.gear}>
+        <Text style={styles.gearText}>⚙</Text>
+      </Pressable>
+
+      <View style={styles.zoomColumn}>
+        {[1, 2, 3].map((z) => (
+          <Pressable
+            key={z}
+            accessibilityRole="button"
+            accessibilityLabel={`Zoom ${z} fois`}
+            onPress={() => setZoomFactor(z)}
+            style={[styles.zoomButton, zoomFactor === z && styles.zoomButtonOn]}
+          >
+            <Text style={[styles.zoomText, zoomFactor === z && styles.zoomTextOn]}>{z}×</Text>
+          </Pressable>
+        ))}
+      </View>
 
       <View style={styles.topBar} pointerEvents="none">
         <View style={[styles.pill, { backgroundColor: status.color }]}>
@@ -311,10 +337,13 @@ export function UKFastScanner({ socket, active, onOpenRoute }: UKFastScannerProp
 }
 
 function ScanRow({ parcel }: { parcel: Parcel }): React.JSX.Element {
-  const icon = parcel.status === 'ready' ? '✓' : parcel.status === 'pending' ? '…' : '!';
+  const icon = parcel.status === 'ready' ? (parcel.geoPrecision === 'postcode' || parcel.geoPrecision === 'synthetic' ? '≈' : '✓') : parcel.status === 'pending' ? '…' : '!';
   const color = parcel.status === 'ready' ? '#1faa59' : parcel.status === 'pending' ? '#e0a100' : '#d93025';
+  const approximate = parcel.geoPrecision === 'postcode' || parcel.geoPrecision === 'synthetic';
   const detail =
-    parcel.status === 'ready'
+    parcel.status === 'ready' && approximate
+      ? `position approximative (${parcel.geoPrecision === 'postcode' ? 'centre du code postal' : 'fictive'})`
+      : parcel.status === 'ready'
       ? `${parcel.source === 'vision' ? 'vision' : parcel.geoSource === 'cache' ? 'cache' : parcel.geoSource ?? ''} · ${parcel.latencyMs ?? '?'} ms`
       : parcel.status === 'pending'
         ? 'localisation…'
@@ -336,7 +365,14 @@ const styles = StyleSheet.create({
   title: { color: '#fff', fontSize: 22, fontWeight: '700', textAlign: 'center', marginBottom: 12 },
   body: { color: '#ccc', fontSize: 16, textAlign: 'center', marginBottom: 24 },
   guide: { position: 'absolute', borderWidth: 3, borderColor: '#ffd400', borderRadius: 12 },
-  topBar: { position: 'absolute', top: 12, left: 12, right: 12, flexDirection: 'row', justifyContent: 'space-between' },
+  topBar: { position: 'absolute', top: 12, left: 12, right: 64, flexDirection: 'row', justifyContent: 'space-between' },
+  gear: { position: 'absolute', top: 8, right: 10, width: 48, height: 48, borderRadius: 24, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center', zIndex: 5 },
+  gearText: { color: '#fff', fontSize: 26 },
+  zoomColumn: { position: 'absolute', right: 10, top: '34%', gap: 8, zIndex: 5 },
+  zoomButton: { width: 48, height: 48, borderRadius: 24, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center' },
+  zoomButtonOn: { backgroundColor: '#ffd400' },
+  zoomText: { color: '#fff', fontSize: 17, fontWeight: '800' },
+  zoomTextOn: { color: '#111' },
   pill: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16 },
   pillDark: { backgroundColor: 'rgba(0,0,0,0.65)' },
   pillText: { color: '#fff', fontSize: 14, fontWeight: '600' },
