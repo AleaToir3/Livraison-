@@ -1,0 +1,11 @@
+# Python 3.12+ — versions minimales ; la suite de tests a été exécutée avec fastapi 0.162, uvicorn 0.54,
+# starlette 1.7, orjson 3.13, ortools 9.15, numpy 2.5, httpx 0.28, redis 8.1, pydantic 2.13, google-genai 2.33.
+fastapi>=0.115
+uvicorn[standard]>=0.30      # inclut uvloop, httptools, websockets
+orjson>=3.10
+ortools>=9.12,<10            # RoutingModel.RegisterTransitMatrix
+numpy>=1.26
+httpx[http2]>=0.27
+redis[hiredis]>=5.0
+pydantic>=2.7
+google-genai>=2.0

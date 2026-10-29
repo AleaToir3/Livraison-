@@ -1,0 +1,87 @@
+# Pile "ultra-basse latence" : FastAPI/uvloop  +  Redis (cache UPRN en RAM)  +  OSRM UK (CH, mémoire partagée).
+#
+#   1. ./setup_osrm_uk.sh                       # une fois : télécharge et prépare la carte (CH)
+#   2. cp .env.example .env && $EDITOR .env     # clés API (Ideal Postcodes / OS Places / Google / Gemini)
+#   3. docker compose up -d --build
+name: uk-last-mile
+
+services:
+  redis:
+    image: redis:7.4-alpine
+    command:
+      - redis-server
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      - --maxmemory
+      - ${REDIS_MAXMEMORY:-512mb}
+      - --maxmemory-policy
+      - allkeys-lru
+      - --tcp-keepalive
+      - "60"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 2s
+      retries: 10
+    ports:
+      - "127.0.0.1:6379:6379"
+    networks: [lastmile]
+
+  osrm-uk:
+    image: ${OSRM_IMAGE:-ghcr.io/project-osrm/osrm-backend:v5.27.1}
+    entrypoint: ["/bin/sh", "/opt/start_osrm.sh"]
+    environment:
+      OSRM_BASENAME: ${OSRM_BASENAME:-great-britain-latest.osrm}
+      OSRM_MAX_TABLE_SIZE: ${OSRM_MAX_TABLE_SIZE:-500}
+      OSRM_THREADS: ${OSRM_THREADS:-4}
+    volumes:
+      - ${OSRM_DATA_DIR:-./osrm-data}:/data:ro
+      - ./osrm/start_osrm.sh:/opt/start_osrm.sh:ro
+    # La carte vit dans la mémoire partagée (/dev/shm) : la taille doit couvrir tout le jeu de données CH.
+    shm_size: ${OSRM_SHM_SIZE:-10gb}
+    ulimits:
+      memlock: -1
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/5000'"]
+      interval: 10s
+      timeout: 3s
+      retries: 30
+      start_period: 180s
+    ports:
+      - "127.0.0.1:5000:5000"
+    networks: [lastmile]
+
+  backend:
+    build:
+      context: ../backend
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      API_KEY: ${API_KEY:-}
+      REDIS_URL: redis://redis:6379/0
+      OSRM_URL: http://osrm-uk:5000
+      OSRM_MAX_TABLE_SIZE: ${BACKEND_MAX_TABLE_SIZE:-250}
+      IDEAL_POSTCODES_API_KEY: ${IDEAL_POSTCODES_API_KEY:-}
+      OS_PLACES_API_KEY: ${OS_PLACES_API_KEY:-}
+      GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      ALLOW_SYNTHETIC_GEOCODING: ${ALLOW_SYNTHETIC_GEOCODING:-}
+      SOLVER_WORKERS: ${SOLVER_WORKERS:-2}
+      UVICORN_WORKERS: ${UVICORN_WORKERS:-1}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      redis:
+        condition: service_healthy
+      osrm-uk:
+        condition: service_healthy
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    networks: [lastmile]
+
+networks:
+  lastmile:
+    driver: bridge

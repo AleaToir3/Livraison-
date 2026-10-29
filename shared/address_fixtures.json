@@ -1,0 +1,483 @@
+[
+  {
+    "name": "royal_mail_number",
+    "text": "ROYAL MAIL TRACKED 48\nMR J SMITH\n14 ALBION AVENUE\nHEADINGLEY\nLEEDS\nLS6 1AB\nTEL 07700 900123\nJD0123456789GB",
+    "expected": {
+      "postcode": "LS6 1AB",
+      "building_number": "14",
+      "sub_building": null,
+      "building_name": null,
+      "street": "ALBION AVENUE",
+      "cache_key": "LS61AB:14",
+      "valid": true
+    }
+  },
+  {
+    "name": "dpd_flat_deliver_to",
+    "text": "DPD\nDeliver to:\nMRS A PATEL\nFLAT 2, 27 ALBION AVENUE\nLEEDS LS6 1AD\nRef 1234567890\n1.2KG",
+    "expected": {
+      "postcode": "LS6 1AD",
+      "building_number": "27",
+      "sub_building": "FLAT 2",
+      "building_name": null,
+      "street": "ALBION AVENUE",
+      "cache_key": "LS61AD:27",
+      "valid": true
+    }
+  },
+  {
+    "name": "evri_house_name",
+    "text": "EVRI\nMISS L BROWN\nROSE COTTAGE\nPRIMROSE CLOSE\nLEEDS\nLS6 2QA\n2 KG",
+    "expected": {
+      "postcode": "LS6 2QA",
+      "building_number": null,
+      "sub_building": null,
+      "building_name": "ROSE COTTAGE",
+      "street": "PRIMROSE CLOSE",
+      "cache_key": "LS62QA:ROSE-COTTAGE",
+      "valid": true
+    }
+  },
+  {
+    "name": "amazon_the_laurels",
+    "text": "Amazon\nShip to:\nJ O'NEILL\nTHE LAURELS\nBLUEBELL MEWS\nLEEDS LS6 2QB\nOrder #123-4567890-1234567",
+    "expected": {
+      "postcode": "LS6 2QB",
+      "building_number": null,
+      "sub_building": null,
+      "building_name": "THE LAURELS",
+      "street": "BLUEBELL MEWS",
+      "cache_key": "LS62QB:THE-LAURELS",
+      "valid": true
+    }
+  },
+  {
+    "name": "sender_block_then_to",
+    "text": "FROM: ACME LTD, 5 HIGH STREET, MANCHESTER M1 1AA\nTO: MR K LEE\n12-14 ORCHARD STREET\nLEEDS LS6 3XY",
+    "expected": {
+      "postcode": "LS6 3XY",
+      "building_number": "12-14",
+      "sub_building": null,
+      "building_name": null,
+      "street": "ORCHARD STREET",
+      "cache_key": "LS63XY:12-14",
+      "valid": true
+    }
+  },
+  {
+    "name": "single_word_house_name",
+    "text": "OAKFIELD\nBLUEBELL MEWS\nLEEDS\nLS6 2QB",
+    "expected": {
+      "postcode": "LS6 2QB",
+      "building_number": null,
+      "sub_building": null,
+      "building_name": "OAKFIELD",
+      "street": "BLUEBELL MEWS",
+      "cache_key": "LS62QB:OAKFIELD",
+      "valid": true
+    }
+  },
+  {
+    "name": "unit_only",
+    "text": "ACME LTD\nUNIT 4\nMILL INDUSTRIAL ESTATE\nLEEDS\nLS11 5AB",
+    "expected": {
+      "postcode": "LS11 5AB",
+      "building_number": null,
+      "sub_building": "UNIT 4",
+      "building_name": null,
+      "street": "MILL INDUSTRIAL ESTATE",
+      "cache_key": "LS115AB:UNIT-4-MILL-INDUSTRIAL-ESTATE",
+      "valid": true
+    }
+  },
+  {
+    "name": "ocr_lowercase_L_for_one",
+    "text": "MR X\n14A KINGSWAY ROAD\nLS6 lAB",
+    "expected": {
+      "postcode": "LS6 1AB",
+      "building_number": "14A",
+      "sub_building": null,
+      "building_name": null,
+      "street": "KINGSWAY ROAD",
+      "cache_key": "LS61AB:14A",
+      "valid": true
+    }
+  },
+  {
+    "name": "ocr_capital_I_for_one",
+    "text": "MR X\n9 PARK LANE\nLEEDS\nLS6 IAB",
+    "expected": {
+      "postcode": "LS6 1AB",
+      "building_number": "9",
+      "sub_building": null,
+      "building_name": null,
+      "street": "PARK LANE",
+      "cache_key": "LS61AB:9",
+      "valid": true
+    }
+  },
+  {
+    "name": "one_line_no_commas_is_invalid",
+    "text": "FLAT 3 ROSE HOUSE 14 ALBION ROAD LEEDS LS6 1AB",
+    "expected": {
+      "postcode": "LS6 1AB",
+      "building_number": null,
+      "sub_building": "FLAT 3",
+      "building_name": null,
+      "street": null,
+      "cache_key": null,
+      "valid": false
+    }
+  },
+  {
+    "name": "ambiguous_court",
+    "text": "FLAT 2, ROSE COURT, ALBION AVENUE, LEEDS, LS6 1AB",
+    "expected": {
+      "postcode": "LS6 1AB",
+      "building_number": null,
+      "sub_building": "FLAT 2",
+      "building_name": "ROSE COURT",
+      "street": "ALBION AVENUE",
+      "cache_key": "LS61AB:ROSE-COURT",
+      "valid": true
+    }
+  },
+  {
+    "name": "no_postcode",
+    "text": "random text with no postcode",
+    "expected": {
+      "postcode": null,
+      "building_number": null,
+      "sub_building": null,
+      "building_name": null,
+      "street": null,
+      "cache_key": null,
+      "valid": false
+    }
+  },
+  {
+    "name": "one_line_commas",
+    "text": "MR J SMITH, 14 ALBION AVENUE, LEEDS LS6 1AB",
+    "expected": {
+      "postcode": "LS6 1AB",
+      "building_number": "14",
+      "sub_building": null,
+      "building_name": null,
+      "street": "ALBION AVENUE",
+      "cache_key": "LS61AB:14",
+      "valid": true
+    }
+  },
+  {
+    "name": "lowercase_compact_postcode",
+    "text": "mr j smith\n14 albion avenue\nleeds\nls61ab",
+    "expected": {
+      "postcode": "LS6 1AB",
+      "building_number": "14",
+      "sub_building": null,
+      "building_name": null,
+      "street": "ALBION AVENUE",
+      "cache_key": "LS61AB:14",
+      "valid": true
+    }
+  },
+  {
+    "name": "range_with_spaces",
+    "text": "MS P JONES\n12 - 14 HIGH STREET\nLEEDS LS6 1AB",
+    "expected": {
+      "postcode": "LS6 1AB",
+      "building_number": "12-14",
+      "sub_building": null,
+      "building_name": null,
+      "street": "HIGH STREET",
+      "cache_key": "LS61AB:12-14",
+      "valid": true
+    }
+  },
+  {
+    "name": "number_on_own_line",
+    "text": "MR J SMITH\n14\nALBION AVENUE\nLS6 1AB",
+    "expected": {
+      "postcode": "LS6 1AB",
+      "building_number": "14",
+      "sub_building": null,
+      "building_name": null,
+      "street": "ALBION AVENUE",
+      "cache_key": "LS61AB:14",
+      "valid": true
+    }
+  },
+  {
+    "name": "invalid_area",
+    "text": "MR J SMITH\n14 ALBION AVENUE\nZZ9 9ZZ",
+    "expected": {
+      "postcode": null,
+      "building_number": null,
+      "sub_building": null,
+      "building_name": null,
+      "street": null,
+      "cache_key": null,
+      "valid": false
+    }
+  },
+  {
+    "name": "tracking_lookalike",
+    "text": "JD01 2345 6789 GB\nMR J SMITH\n14 ALBION AVENUE\nLEEDS LS6 1AB",
+    "expected": {
+      "postcode": "LS6 1AB",
+      "building_number": "14",
+      "sub_building": null,
+      "building_name": null,
+      "street": "ALBION AVENUE",
+      "cache_key": "LS61AB:14",
+      "valid": true
+    }
+  },
+  {
+    "name": "phone_lines",
+    "text": "EVRI\nTEL: 0113 496 0000\nMOB 07700900123\nMR J SMITH\n3 THE GREEN\nLEEDS\nLS6 1AB",
+    "expected": {
+      "postcode": "LS6 1AB",
+      "building_number": "3",
+      "sub_building": null,
+      "building_name": null,
+      "street": "THE GREEN",
+      "cache_key": "LS61AB:3",
+      "valid": true
+    }
+  },
+  {
+    "name": "return_to_block",
+    "text": "RETURN TO: SELLER LTD\n1 FACTORY ROAD\nBIRMINGHAM B1 1AA\nDELIVER TO:\nMRS D KHAN\n8 CHURCH LANE\nLS6 1AB",
+    "expected": {
+      "postcode": "LS6 1AB",
+      "building_number": "8",
+      "sub_building": null,
+      "building_name": null,
+      "street": "CHURCH LANE",
+      "cache_key": "LS61AB:8",
+      "valid": true
+    }
+  },
+  {
+    "name": "flat_on_own_line",
+    "text": "MR J SMITH\nFLAT 2\n14 ALBION ROAD\nLEEDS\nLS6 1AB",
+    "expected": {
+      "postcode": "LS6 1AB",
+      "building_number": "14",
+      "sub_building": "FLAT 2",
+      "building_name": null,
+      "street": "ALBION ROAD",
+      "cache_key": "LS61AB:14",
+      "valid": true
+    }
+  },
+  {
+    "name": "name_and_street_same_line",
+    "text": "MISS L BROWN\nROSE COTTAGE PRIMROSE CLOSE\nLEEDS\nLS6 2QA",
+    "expected": {
+      "postcode": "LS6 2QA",
+      "building_number": null,
+      "sub_building": null,
+      "building_name": "ROSE COTTAGE",
+      "street": "PRIMROSE CLOSE",
+      "cache_key": "LS62QA:ROSE-COTTAGE",
+      "valid": true
+    }
+  },
+  {
+    "name": "apartment_with_letter",
+    "text": "MR J SMITH\nAPARTMENT 4B\n7 THE PARADE\nLONDON E1 6AN",
+    "expected": {
+      "postcode": "E1 6AN",
+      "building_number": "7",
+      "sub_building": "APARTMENT 4B",
+      "building_name": null,
+      "street": "THE PARADE",
+      "cache_key": "E16AN:7",
+      "valid": true
+    }
+  },
+  {
+    "name": "no_prefix",
+    "text": "MR J SMITH\nNo. 14 ALBION AVENUE\nLS6 1AB",
+    "expected": {
+      "postcode": "LS6 1AB",
+      "building_number": "14",
+      "sub_building": null,
+      "building_name": null,
+      "street": "ALBION AVENUE",
+      "cache_key": "LS61AB:14",
+      "valid": true
+    }
+  },
+  {
+    "name": "four_char_outward",
+    "text": "MR J SMITH\n10 DOWNING STREET\nLONDON\nSW1A 2AA",
+    "expected": {
+      "postcode": "SW1A 2AA",
+      "building_number": "10",
+      "sub_building": null,
+      "building_name": null,
+      "street": "DOWNING STREET",
+      "cache_key": "SW1A2AA:10",
+      "valid": true
+    }
+  },
+  {
+    "name": "service_noise_lines",
+    "text": "SIGNED FOR 1ST CLASS\nDELIVERY ADDRESS\nMR J SMITH\n14 ALBION AVENUE\nLS6 1AB\nUNITED KINGDOM",
+    "expected": {
+      "postcode": "LS6 1AB",
+      "building_number": "14",
+      "sub_building": null,
+      "building_name": null,
+      "street": "ALBION AVENUE",
+      "cache_key": "LS61AB:14",
+      "valid": true
+    }
+  },
+  {
+    "name": "street_named_like_carrier",
+    "text": "MR J SMITH\n14 HERMES CLOSE\nLEEDS\nLS6 1AB",
+    "expected": {
+      "postcode": "LS6 1AB",
+      "building_number": "14",
+      "sub_building": null,
+      "building_name": null,
+      "street": "HERMES CLOSE",
+      "cache_key": "LS61AB:14",
+      "valid": true
+    }
+  },
+  {
+    "name": "flat_letter",
+    "text": "MS A WONG\nFLAT A\n21 KINGSWAY ROAD\nLEEDS\nLS6 1AB",
+    "expected": {
+      "postcode": "LS6 1AB",
+      "building_number": "21",
+      "sub_building": "FLAT A",
+      "building_name": null,
+      "street": "KINGSWAY ROAD",
+      "cache_key": "LS61AB:21",
+      "valid": true
+    }
+  },
+  {
+    "name": "number_with_letter_only_street",
+    "text": "14B ALBION AVENUE\nLS6 1AB",
+    "expected": {
+      "postcode": "LS6 1AB",
+      "building_number": "14B",
+      "sub_building": null,
+      "building_name": null,
+      "street": "ALBION AVENUE",
+      "cache_key": "LS61AB:14B",
+      "valid": true
+    }
+  },
+  {
+    "name": "empty",
+    "text": "",
+    "expected": {
+      "postcode": null,
+      "building_number": null,
+      "sub_building": null,
+      "building_name": null,
+      "street": null,
+      "cache_key": null,
+      "valid": false
+    }
+  },
+  {
+    "name": "ocr_repair_with_town_after_postcode",
+    "text": "DHL EXPRESS\nTo: DR K LEE\nFLAT 2\n27 ALBION AVENUE\nLS6 lAD LEEDS\nWEIGHT 7.9 KG",
+    "expected": {
+      "postcode": "LS6 1AD",
+      "building_number": "27",
+      "sub_building": "FLAT 2",
+      "building_name": null,
+      "street": "ALBION AVENUE",
+      "cache_key": "LS61AD:27",
+      "valid": true
+    }
+  },
+  {
+    "name": "surname_green_is_not_a_street",
+    "text": "MRS F GREEN\n21 CRANBROOK ROAD\nLS6 2BB LEEDS",
+    "expected": {
+      "postcode": "LS6 2BB",
+      "building_number": "21",
+      "sub_building": null,
+      "building_name": null,
+      "street": "CRANBROOK ROAD",
+      "cache_key": "LS62BB:21",
+      "valid": true
+    }
+  },
+  {
+    "name": "surname_wood_with_initial",
+    "text": "MS I WOOD\n22 CRANBROOK ROAD\nLEEDS LS6 2BB",
+    "expected": {
+      "postcode": "LS6 2BB",
+      "building_number": "22",
+      "sub_building": null,
+      "building_name": null,
+      "street": "CRANBROOK ROAD",
+      "cache_key": "LS62BB:22",
+      "valid": true
+    }
+  },
+  {
+    "name": "untitled_surname_green_with_numbered_street",
+    "text": "JOHN GREEN\n14 ALBION AVENUE\nLEEDS\nLS6 1AB",
+    "expected": {
+      "postcode": "LS6 1AB",
+      "building_number": "14",
+      "sub_building": null,
+      "building_name": null,
+      "street": "ALBION AVENUE",
+      "cache_key": "LS61AB:14",
+      "valid": true
+    }
+  },
+  {
+    "name": "building_court_then_numbered_street",
+    "text": "ROSE COURT\n14 ALBION AVENUE\nLEEDS\nLS6 1AB",
+    "expected": {
+      "postcode": "LS6 1AB",
+      "building_number": "14",
+      "sub_building": null,
+      "building_name": "ROSE COURT",
+      "street": "ALBION AVENUE",
+      "cache_key": "LS61AB:14",
+      "valid": true
+    }
+  },
+  {
+    "name": "street_only_is_invalid",
+    "text": "ROSE HILL\nALBION AVENUE\nLEEDS\nLS6 1AB",
+    "expected": {
+      "postcode": "LS6 1AB",
+      "building_number": null,
+      "sub_building": null,
+      "building_name": null,
+      "street": "ROSE HILL",
+      "cache_key": null,
+      "valid": false
+    }
+  },
+  {
+    "name": "words_never_become_postcodes",
+    "text": "MR J SMITH\nALBION AVENUE\nLEEDS",
+    "expected": {
+      "postcode": null,
+      "building_number": null,
+      "sub_building": null,
+      "building_name": null,
+      "street": null,
+      "cache_key": null,
+      "valid": false
+    }
+  }
+]

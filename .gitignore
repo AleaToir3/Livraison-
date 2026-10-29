@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+
+# Node / React Native
+node_modules
+mobile/ios/Pods/
+mobile/android/.gradle/
+mobile/android/app/build/
+
+# Infra (données lourdes et secrets)
+infra/.env
+infra/osrm-data/
+
+*.log
+.DS_Store
