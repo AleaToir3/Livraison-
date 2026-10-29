@@ -16,7 +16,7 @@ permissions:
 
 concurrency:
   group: android-apk
-  cancel-in-progress: true
+  cancel-in-progress: false # une nouvelle construction attend la fin de la précédente
 
 jobs:
   apk:
