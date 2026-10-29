@@ -4,6 +4,8 @@ Optimiseur de tournées de livraison pour le Royaume-Uni.
 Il scanne l'étiquette sur le téléphone, géocode la porte exacte, puis calcule la tournée.
 Le livreur peut garer le van une fois et livrer plusieurs portes à pied quand c'est plus court.
 
+**Premier test sur de vrais téléphones : voir [GUIDE_TEST.md](GUIDE_TEST.md).**
+
 ## Arborescence
 
 ```
@@ -16,16 +18,19 @@ Le livreur peut garer le van une fois et livrer plusieurs portes à pied quand c
 │   ├── hybrid_matrix.py      Haversine NumPy, client OSRM Table API, fusion WALK_SHORTCUT
 │   ├── routing_engine.py     OR-Tools, ParkingClusters, comparaison avec le van strict
 │   ├── main.py               WS /ws/scan, POST /api/v1/extract-image, POST /api/v1/optimize-route
-│   └── tests/                125 tests (dont un vrai redis-server)
+│   └── tests/                134 tests (dont un vrai redis-server)
 ├── infra/
-│   ├── docker-compose.yml    backend + redis + osrm-uk (mémoire partagée)
+│   ├── docker-compose.yml    backend + redis + osrm-uk (mémoire partagée) : pile complète
 │   ├── setup_osrm_uk.sh      télécharge great-britain-latest.osm.pbf, osrm-extract, osrm-contract (CH)
 │   ├── osrm/start_osrm.sh    osrm-datastore puis osrm-routed --shared-memory
 │   └── .env.example
-├── mobile/                   React Native (TypeScript)
+├── render.yaml               serveur en un clic sur Render (backend seul, OSRM public de démo)
+├── .github/workflows/android-apk.yml   construit l'APK et le publie (release « android-latest »)
+├── mobile/                   React Native (TypeScript) + projets android/ et ios/
 │   ├── App.tsx
-│   ├── src/UKFastScanner.tsx       caméra, OCR embarqué, WebSocket, repli WebP
+│   ├── src/UKFastScanner.tsx       caméra, OCR embarqué limité au cadre jaune, WebSocket, repli WebP
 │   ├── src/DriverRouteScreen.tsx   « Garez ici → Livrez N portes à pied → Reprenez le van »
+│   ├── src/SettingsScreen.tsx      adresse du serveur + clé API (stockées sur le téléphone)
 │   └── src/…                       parseur TS, client WS, stores, encodeur WebP (Skia)
 ├── shared/address_fixtures.json    37 étiquettes : valident le parseur Python ET TypeScript
 └── benchmark_uk_speed.py           50 colis, pièges UK, comparaison Van strict / Hybride
@@ -127,10 +132,11 @@ Ce qui a été fait :
 ## Ce qui n'a PAS été vérifié
 
 - **L'app sur un appareil.** Le TypeScript passe `tsc --noEmit` en mode strict et compile avec Babel
-  + le plugin worklets. 70 tests Node couvrent la logique (parseur, client WS, anti-doublon, progression).
-  La caméra, l'OCR, Skia et `takeSnapshot` n'ont jamais tourné. L'orientation de l'instantané iOS est à valider.
-  Les projets natifs `ios/` et `android/` sont à générer (`npx @react-native-community/cli init`, RN 0.76),
-  avec la permission caméra (`NSCameraUsageDescription`, `android.permission.CAMERA`).
+  + le plugin worklets ; 86 tests Node couvrent la logique (parseur, client WS, anti-doublon, progression,
+  réglages, filtre du cadre). L'APK Android est construit par GitHub Actions. Mais la caméra, l'OCR, Skia et
+  `takeSnapshot` n'ont jamais tourné sur un téléphone. L'orientation de l'instantané iOS est à valider,
+  et le filtre « texte dans le cadre » suppose que ML Kit renvoie des coordonnées d'image redressée.
+  Le projet `ios/` est généré mais jamais compilé.
 - **Docker et le vrai OSRM.** Le démon Docker n'était pas disponible. `docker-compose.yml` est valide en YAML
   et les scripts passent `bash -n`, mais aucun conteneur n'a démarré. Les temps OSRM du benchmark viennent
   d'un OSRM **simulé** en mémoire : ils ne disent rien sur OSRM + CH sur la carte de Grande-Bretagne.
@@ -138,6 +144,15 @@ Ce qui a été fait :
   de leur documentation. Aucune vraie clé n'a été utilisée.
 - **Le scénario** est fictif. Les adresses et les rues sont inventées. La marche est à vol d'oiseau :
   elle suppose un passage piéton entre les portes (ni rivière, ni voie ferrée, ni clôture).
+
+## Hébergement
+
+- **Serveur** : Render ou Railway (conteneur, WebSocket, processus longs). Voir `render.yaml` et `backend/railway.json`.
+  Mesuré : environ 240 Mo de mémoire.
+- **Vercel ne convient pas au serveur** : pas de WebSocket, pas de processus longs, et OR-Tools + NumPy pèsent
+  plus de 250 Mo installés. Vercel pourrait héberger une page de démonstration statique (travail commencé : `scripts/export_demo.py`).
+- **OSRM** : le serveur de démonstration public suffit pour quelques testeurs. Pour du volume, utilisez la pile
+  Docker (`infra/`) sur une machine de 16 Go de RAM.
 
 ## Configuration
 
@@ -150,6 +165,7 @@ Tout est dans `backend/config.py` (variables d'environnement). Les principales :
 | `SOLVER_TIME_LIMIT_MS` / `SOLVER_WORKERS` | 150 / 2 | solveur (≥ 2 processus : hybride et van en parallèle) |
 | `APP_ENV` | development | `production` coupe le géocodage synthétique de repli et la doc OpenAPI |
 | `API_KEY` | vide | si défini : `X-API-Key` (HTTP) ou `?key=` (WebSocket) |
+| `POSTCODES_IO_ENABLED` | true | repli gratuit : centre du code postal (précision `postcode`), sans clé |
 | `OSRM_MAX_TABLE_SIZE` | 250 | doit rester ≤ `--max-table-size` du serveur OSRM (500 dans le compose) |
 
 Le point synthétique de repli est **fictif**. Il sert aux tests et à la démo. Il est toujours étiqueté
