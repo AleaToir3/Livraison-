@@ -584,17 +584,33 @@ def numpy_scaling() -> None:
 # =============================================================================================
 # 5. Orchestration
 # =============================================================================================
-async def main_async(args: argparse.Namespace) -> int:
-    parcels = build_parcels(args.scenario)
+@dataclass
+class World:
+    """Tout ce qu'il faut pour exécuter le pipeline : colis, réseau routier, services branchés."""
+
+    bench: Bench
+    glitched: list[int]
+    network: RoadNetwork
+    cache: object
+    pool: SolverPool
+    http: httpx.AsyncClient
+    simulated: bool
+    settings: Settings
+
+
+async def build_world(
+    scenario: str = "traps", seed: int = 7, workers: int = 2, osrm_url: str = "", redis_url: str = ""
+) -> World:
+    parcels = build_parcels(scenario)
     assert len(parcels) == 50, len(parcels)
-    labels = [render_label(p, i, args.seed) for i, p in enumerate(parcels)]
+    labels = [render_label(p, i, seed) for i, p in enumerate(parcels)]
     glitched = inject_ocr_glitches(labels, parcels)
 
     settings = Settings(
-        redis_url=args.redis_url or "", solver_workers=args.workers, osrm_url=args.osrm_url or "http://osrm-sim",
+        redis_url=redis_url or "", solver_workers=workers, osrm_url=osrm_url or "http://osrm-sim",
         osrm_max_table_size=250, allow_synthetic_geocoding=False,
     )
-    simulated = not args.osrm_url
+    simulated = not osrm_url
     network = RoadNetwork(NODES, SEGMENTS)
     transport = httpx.ASGITransport(app=make_sim_osrm(network)) if simulated else None
     http = httpx.AsyncClient(transport=transport, limits=httpx.Limits(max_connections=20, max_keepalive_connections=10), timeout=3.0)
@@ -602,10 +618,10 @@ async def main_async(args: argparse.Namespace) -> int:
     provider = StaticProvider()
     for p in parcels:
         provider.register(p.truth_key, *p.latlon)
-    cache = await create_cache(settings) if args.redis_url else MemoryCache()
+    cache = await create_cache(settings) if redis_url else MemoryCache()
     gemini = TruthGemini()
     osrm = OSRMClient(http, settings.osrm_url, timeout_s=settings.osrm_timeout_s, max_table_size=settings.osrm_max_table_size)
-    pool = SolverPool(args.workers)
+    pool = SolverPool(workers)
     bench = Bench(
         parcels=parcels, labels=labels, settings=settings, provider=provider, gemini=gemini,
         vision=GeminiVisionExtractor("bench", client=gemini),  # type: ignore[arg-type]
@@ -617,6 +633,15 @@ async def main_async(args: argparse.Namespace) -> int:
         ),
         depot=to_latlon(*DEPOT_XY),
     )
+    return World(bench, glitched, network, cache, pool, http, simulated, settings)
+
+
+async def main_async(args: argparse.Namespace) -> int:
+    world = await build_world(args.scenario, args.seed, args.workers, args.osrm_url, args.redis_url)
+    bench, glitched, cache, pool, http, simulated, settings = (
+        world.bench, world.glitched, world.cache, world.pool, world.http, world.simulated, world.settings,
+    )
+    parcels = bench.parcels
 
     print("=" * 100)
     print(" BENCHMARK UK LAST-MILE : 50 colis, pièges LTN / sens unique / impasses / House Names")
@@ -631,7 +656,7 @@ async def main_async(args: argparse.Namespace) -> int:
     prefix = f"bench:{uuid.uuid4().hex[:8]}"
 
     def new_geocoder(tag: str) -> GeocoderUK:
-        return GeocoderUK(cache=cache, providers=[provider], ttl_s=600, cache_prefix=f"{prefix}:{tag}")
+        return GeocoderUK(cache=cache, providers=[bench.provider], ttl_s=600, cache_prefix=f"{prefix}:{tag}")
 
     cold_geocoder = new_geocoder("run")
     cold = await run_once(bench, cold_geocoder, glitched)

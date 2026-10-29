@@ -80,9 +80,12 @@ const CARRIER_ONLY = new RegExp(
     String.raw`|UNITED\s*KINGDOM|ENGLAND|SCOTLAND|WALES|NORTHERN\s*IRELAND)\b[\s\d.,/:\-]*)+$`,
 );
 const SENDER_MARK = /^(?:FROM|SENDER|RETURN(?:\s*(?:TO|ADDRESS))?|SOLD\s*BY|SHIPPED\s*BY|DISPATCHED\s*BY)\b\s*[:-]?\s*/;
+// « HIP TO » / « ELIVER TO » : la première lettre est souvent cachée par un pli du film plastique.
+const DELIVER_WORDS =
+  String.raw`(?:S?HIP(?:PING)?|D?ELIVER(?:Y)?)\s*TO|DELIVERY\s*ADDRESS|SEND\s*TO|SHIPPING\s*ADDRESS`;
+const STRONG_DELIVER_MARK = new RegExp(String.raw`^(?:${DELIVER_WORDS})\b\s*[:-]?`);
 const DELIVER_MARK = new RegExp(
-  String.raw`^(?:(?:DELIVER(?:Y)?\s*TO|DELIVERY\s*ADDRESS|SHIP(?:PING)?\s*TO|SEND\s*TO|SHIPPING\s*ADDRESS)\b\s*[:-]?` +
-    String.raw`|(?:TO|ATTN|ATTENTION|ADDRESS)\s*:)\s*`,
+  String.raw`^(?:(?:${DELIVER_WORDS})\b\s*[:-]?|(?:TO|ATTN|ATTENTION|ADDRESS)\s*:)\s*`,
 );
 
 // --- Segments d'adresse -----------------------------------------------------------------------
@@ -94,6 +97,8 @@ const SUB_RE = new RegExp(
 const NUM = String.raw`\d{1,4}[A-Z]?(?:\s*-\s*\d{1,4}[A-Z]?)?`;
 const NUM_STREET_RE = new RegExp(String.raw`^(${NUM})\s+([A-Z][A-Z0-9'\-. &]*)$`);
 const NUM_ONLY_RE = new RegExp(`^${NUM}$`);
+// OCR sans espaces : "23MIZZENROADCLOWNE" (le numéro suffit à la clé ; 6 lettres minimum pour ne pas toucher "3RD")
+const NUM_GLUED_RE = /^(\d{1,4})([A-Z]{6,}[A-Z0-9'\-. &]*)$/;
 const NO_PREFIX_RE = /^(?:NO\.?|NUMBER)\s*(?=\d)/;
 
 export interface ParsedAddress {
@@ -223,7 +228,21 @@ function findPostcode(text: string): PostcodeMatch | null {
   return null;
 }
 
-function selectDeliveryLines(lines: string[]): string[] {
+/**
+ * Retire le bloc expéditeur ("FROM: ...") et les préfixes "DELIVER TO:". `anchored` vaut true si un
+ * "SHIP TO" / "DELIVER TO" a été trouvé : tout ce qui le précède (expéditeur, service, poids) est écarté et
+ * la livraison est la première adresse qui suit.
+ */
+function selectDeliveryLines(input: string[]): { lines: string[]; anchored: boolean } {
+  let lines = input;
+  let anchored = false;
+  for (let idx = 0; idx < lines.length; idx++) {
+    if (STRONG_DELIVER_MARK.test(lines[idx]!)) {
+      lines = lines.slice(idx);
+      anchored = true;
+      break;
+    }
+  }
   const out: string[] = [];
   let inSender = false;
   for (let line of lines) {
@@ -243,7 +262,7 @@ function selectDeliveryLines(lines: string[]): string[] {
     line = stripChars(line.replace(DELIVER_MARK, '').trim(), ' ,.;:-');
     if (line) out.push(line);
   }
-  return out;
+  return { lines: out, anchored };
 }
 
 // --- Réparation des confusions d'OCR dans le code postal ------------------------------------------
@@ -283,24 +302,44 @@ function repairPostcodeToken(rawToken: string): string | null {
   return best ? best[1] : null;
 }
 
-function locatePostcode(lines: string[]): { postcode: string; index: number; prefix: string } | null {
-  for (let idx = 0; idx < lines.length; idx++) {
-    const m = findPostcode(lines[idx]!);
-    if (m) {
-      return {
-        postcode: `${m.outward} ${m.inward}`,
-        index: idx,
-        prefix: stripChars(lines[idx]!.slice(0, m.index), ' ,.-'),
-      };
-    }
+interface Located {
+  postcode: string;
+  index: number;
+  prefix: string;
+  start: number; // première ligne du bloc d'adresse
+}
+
+/**
+ * Plusieurs codes postaux valides sans marqueur (étiquette UPS : expéditeur en haut, sans "FROM:") : on
+ * retient le DERNIER, car le destinataire est écrit sous l'expéditeur, et le bloc d'adresse commence après le
+ * code postal précédent. Avec un marqueur "SHIP TO" (`anchored`), c'est la première adresse qui suit.
+ */
+function locatePostcode(lines: string[], anchored: boolean): Located | null {
+  const found: { idx: number; m: PostcodeMatch }[] = [];
+  lines.forEach((line, idx) => {
+    const m = findPostcode(line);
+    if (m) found.push({ idx, m });
+  });
+  if (found.length > 0) {
+    const pick = anchored ? found[0]! : found[found.length - 1]!;
+    const start = anchored || found.length === 1 ? 0 : found[found.length - 2]!.idx + 1;
+    return {
+      postcode: `${pick.m.outward} ${pick.m.inward}`,
+      index: pick.idx,
+      prefix: stripChars(lines[pick.idx]!.slice(0, pick.m.index), ' ,.-'),
+      start,
+    };
   }
+  // Aucun code postal strict : réparation OCR depuis la dernière ligne ; la ville peut suivre le code postal.
   for (let idx = lines.length - 1; idx >= 0; idx--) {
     const tokens = lines[idx]!.split(' ');
     for (let start = 0; start < tokens.length; start++) {
       for (const take of [2, 1]) {
         if (start + take > tokens.length) continue;
         const candidate = repairPostcodeToken(tokens.slice(start, start + take).join(''));
-        if (candidate) return { postcode: candidate, index: idx, prefix: stripChars(tokens.slice(0, start).join(' '), ' ,.-') };
+        if (candidate) {
+          return { postcode: candidate, index: idx, prefix: stripChars(tokens.slice(0, start).join(' '), ' ,.-'), start: 0 };
+        }
       }
     }
   }
@@ -365,7 +404,7 @@ function classifySegments(segs: string[]): Omit<ParsedAddress, 'postcode'> {
       seg = stripChars((subMatch[3] ?? '').trim(), ' ,.-');
       if (!seg) continue;
     }
-    const numStreet = NUM_STREET_RE.exec(seg);
+    const numStreet = NUM_STREET_RE.exec(seg) ?? NUM_GLUED_RE.exec(seg);
     if (
       numStreet &&
       (street === null || (number === null && name === null && AMBIGUOUS_NAME_SUFFIXES.has(lastWord(street.split(' ')))))
@@ -442,12 +481,12 @@ function classifySegments(segs: string[]): Omit<ParsedAddress, 'postcode'> {
 // =============================================================================================
 /** Parse le texte OCR brut d'une étiquette. `postcode` vaut null si aucun code postal valide n'est trouvé. */
 export function parseUkAddress(rawText: string): ParsedAddress {
-  const lines = selectDeliveryLines(stripNoise(cleanLines(rawText)));
-  const located = locatePostcode(lines);
+  const { lines, anchored } = selectDeliveryLines(stripNoise(cleanLines(rawText)));
+  const located = locatePostcode(lines, anchored);
   if (located === null) return { ...EMPTY };
   const postcode = normalizePostcode(located.postcode);
   if (postcode === null) return { ...EMPTY };
-  const preLines = [...lines.slice(0, located.index), ...(located.prefix ? [located.prefix] : [])];
+  const preLines = [...lines.slice(located.start, located.index), ...(located.prefix ? [located.prefix] : [])];
   const segments: string[] = [];
   for (const line of preLines) {
     for (const piece of line.split(',')) {

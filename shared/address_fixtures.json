@@ -479,5 +479,70 @@
       "cache_key": null,
       "valid": false
     }
+  },
+  {
+    "name": "ups_photo_rapidocr_glued_words",
+    "text": "SCAMPERS\n10+\nSHP#:V827Y14J9JG\nSHPWT:10KG\nMILLBROOKSTREET\nKG\nEREFORD HEFHR49LF\nIZN827Y1680653\n07578166866\nEBAY12L7VIN\n23MIZZENROADCLOWNE\nCLOWNE DBY S434FX\nGBR 162 0-00\nPSSTANDARD\nACKING#：1ZV827Y16806533116\nLLING:P/P\nEDI\nRerNO:GB2026EBAY001S8S1296",
+    "expected": {
+      "postcode": "S43 4FX",
+      "building_number": "23",
+      "sub_building": null,
+      "building_name": null,
+      "street": "MIZZENROADCLOWNE",
+      "cache_key": "S434FX:23",
+      "valid": true
+    }
+  },
+  {
+    "name": "ups_photo_spaced_with_hip_to_marker",
+    "text": "SCAMPERS\nMILLBROOK STREET\nHEREFORD HEF HR49LF\n10+ KG\nSHP#: V827 Y14J 9JG\nSHP WT: 10 KG\nHIP TO:\nTHOMAS NELSON\n07578166866\nEBAY12L7VJN\n23 MIZZEN ROAD CLOWNE\nCLOWNE DBY S434FX\nGBR 162 0-00\nUPS STANDARD\nTRACKING #: 1Z V82 7Y1 68 0653 3116\nEDI\nBILLING: P/P\nRef No.: GB2026EBAY0018881296",
+    "expected": {
+      "postcode": "S43 4FX",
+      "building_number": "23",
+      "sub_building": null,
+      "building_name": null,
+      "street": "MIZZEN ROAD CLOWNE",
+      "cache_key": "S434FX:23",
+      "valid": true
+    }
+  },
+  {
+    "name": "ups_photo_spaced_no_marker_two_postcodes",
+    "text": "SCAMPERS\nMILLBROOK STREET\nHEREFORD HEF HR49LF\n10+ KG\nSHP#: V827 Y14J 9JG\nSHP WT: 10 KG\nTHOMAS NELSON\n07578166866\nEBAY12L7VJN\n23 MIZZEN ROAD CLOWNE\nCLOWNE DBY S434FX\nGBR 162 0-00\nUPS STANDARD\nTRACKING #: 1Z V82 7Y1 68 0653 3116\nEDI\nBILLING: P/P\nRef No.: GB2026EBAY0018881296",
+    "expected": {
+      "postcode": "S43 4FX",
+      "building_number": "23",
+      "sub_building": null,
+      "building_name": null,
+      "street": "MIZZEN ROAD CLOWNE",
+      "cache_key": "S434FX:23",
+      "valid": true
+    }
+  },
+  {
+    "name": "two_postcodes_sender_first_no_marker",
+    "text": "ACME LTD\n5 HIGH STREET\nMANCHESTER M1 1AA\nMR K LEE\n12 ORCHARD STREET\nLEEDS LS6 3XY",
+    "expected": {
+      "postcode": "LS6 3XY",
+      "building_number": "12",
+      "sub_building": null,
+      "building_name": null,
+      "street": "ORCHARD STREET",
+      "cache_key": "LS63XY:12",
+      "valid": true
+    }
+  },
+  {
+    "name": "ship_to_marker_takes_first_address_after_it",
+    "text": "SHIP TO:\nMS P JONES\n8 CHURCH LANE\nLS6 1AB\nSCAMPERS LTD\n3 MILL ROAD\nHEREFORD HR4 9LF",
+    "expected": {
+      "postcode": "LS6 1AB",
+      "building_number": "8",
+      "sub_building": null,
+      "building_name": null,
+      "street": "CHURCH LANE",
+      "cache_key": "LS61AB:8",
+      "valid": true
+    }
   }
 ]

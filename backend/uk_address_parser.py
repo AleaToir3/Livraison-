@@ -93,10 +93,11 @@ _CARRIER_ONLY = re.compile(
 _SENDER_MARK = re.compile(
     r"^(?:FROM|SENDER|RETURN(?:\s*(?:TO|ADDRESS))?|SOLD\s*BY|SHIPPED\s*BY|DISPATCHED\s*BY)\b\s*[:\-]?\s*"
 )
-_DELIVER_MARK = re.compile(
-    r"^(?:(?:DELIVER(?:Y)?\s*TO|DELIVERY\s*ADDRESS|SHIP(?:PING)?\s*TO|SEND\s*TO|SHIPPING\s*ADDRESS)\b\s*[:\-]?"
-    r"|(?:TO|ATTN|ATTENTION|ADDRESS)\s*:)\s*"
-)
+_DELIVER_WORDS = (
+    r"(?:S?HIP(?:PING)?|D?ELIVER(?:Y)?)\s*TO|DELIVERY\s*ADDRESS|SEND\s*TO|SHIPPING\s*ADDRESS"
+)  # « HIP TO » / « ELIVER TO » : la première lettre est souvent cachée par un pli du film plastique
+_STRONG_DELIVER_MARK = re.compile(rf"^(?:{_DELIVER_WORDS})\b\s*[:-]?")
+_DELIVER_MARK = re.compile(rf"^(?:(?:{_DELIVER_WORDS})\b\s*[:-]?|(?:TO|ATTN|ATTENTION|ADDRESS)\s*:)\s*")
 
 # --- Segments d'adresse ---------------------------------------------------------------------
 _SUB_RE = re.compile(
@@ -107,6 +108,8 @@ _SUB_RE = re.compile(
 _NUM = r"\d{1,4}[A-Z]?(?:\s*-\s*\d{1,4}[A-Z]?)?"
 _NUM_STREET_RE = re.compile(rf"^({_NUM})\s+([A-Z][A-Z0-9'\-. &]*)$")
 _NUM_ONLY_RE = re.compile(rf"^{_NUM}$")
+# OCR sans espaces : "23MIZZENROADCLOWNE" (le numéro suffit à la clé ; 6 lettres minimum pour ne pas toucher "3RD")
+_NUM_GLUED_RE = re.compile(r"^(\d{1,4})([A-Z]{6,}[A-Z0-9'\-. &]*)$")
 _NO_PREFIX_RE = re.compile(r"^(?:NO\.?|NUMBER)\s*(?=\d)")
 
 
@@ -237,8 +240,18 @@ def _find_postcode(text: str) -> re.Match[str] | None:
     return None
 
 
-def _select_delivery_lines(lines: list[str]) -> list[str]:
-    """Retire le bloc expéditeur ("FROM: ...") et les préfixes "DELIVER TO:"."""
+def _select_delivery_lines(lines: list[str]) -> tuple[list[str], bool]:
+    """Retire le bloc expéditeur ("FROM: ...") et les préfixes "DELIVER TO:".
+
+    Retourne (lignes, ancré) : `ancré` vaut True si un "SHIP TO" / "DELIVER TO" a été trouvé ; tout ce qui le
+    précède (expéditeur, service, poids) est alors écarté, et la livraison est la première adresse qui suit.
+    """
+    anchored = False
+    for idx, line in enumerate(lines):
+        if _STRONG_DELIVER_MARK.match(line):
+            lines = lines[idx:]
+            anchored = True
+            break
     out: list[str] = []
     in_sender = False
     for line in lines:
@@ -256,7 +269,7 @@ def _select_delivery_lines(lines: list[str]) -> list[str]:
         line = _DELIVER_MARK.sub("", line).strip(" ,.;:-")
         if line:
             out.append(line)
-    return out
+    return out, anchored
 
 
 # --- Réparation des confusions d'OCR dans le code postal --------------------------------------
@@ -305,12 +318,25 @@ def _repair_postcode_token(token: str) -> str | None:
     return best[1] if best else None
 
 
-def _locate_postcode(lines: list[str]) -> tuple[str, int, str] | None:
-    """Retourne (code postal normalisé, index de ligne, texte situé avant le code postal)."""
+def _locate_postcode(lines: list[str], anchored: bool = False) -> tuple[str, int, str, int] | None:
+    """Retourne (code postal normalisé, index de ligne, texte avant le code postal, début du bloc d'adresse).
+
+    S'il y a plusieurs codes postaux valides (étiquette UPS : expéditeur en haut, sans "FROM:"), on retient
+    le DERNIER : le destinataire est écrit sous l'expéditeur. Le bloc d'adresse commence après le code
+    postal précédent, pour ne pas mélanger les deux adresses.
+    """
+    found: list[tuple[int, re.Match[str]]] = []
     for idx, line in enumerate(lines):
         m = _find_postcode(line)
         if m:
-            return f"{m.group(1)} {m.group(2)}", idx, line[: m.start()].strip(" ,.-")
+            found.append((idx, m))
+    if found and anchored:  # après "SHIP TO:" : la première adresse est celle du destinataire
+        idx, m = found[0]
+        return f"{m.group(1)} {m.group(2)}", idx, lines[idx][: m.start()].strip(" ,.-"), 0
+    if found:
+        idx, m = found[-1]
+        start = found[-2][0] + 1 if len(found) > 1 else 0
+        return f"{m.group(1)} {m.group(2)}", idx, lines[idx][: m.start()].strip(" ,.-"), start
     # Aucun code postal strict : tenter une réparation OCR, en partant de la dernière ligne ;
     # la ville peut suivre le code postal ("LS6 lAD LEEDS"), donc on teste toutes les fenêtres.
     for idx in range(len(lines) - 1, -1, -1):
@@ -321,7 +347,7 @@ def _locate_postcode(lines: list[str]) -> tuple[str, int, str] | None:
                     continue
                 candidate = _repair_postcode_token("".join(tokens[start : start + take]))
                 if candidate:
-                    return candidate, idx, " ".join(tokens[:start]).strip(" ,.-")
+                    return candidate, idx, " ".join(tokens[:start]).strip(" ,.-"), 0
     return None
 
 
@@ -386,7 +412,7 @@ def _classify_segments(segs: list[str]) -> dict[str, str | None]:
             seg = m.group(3).strip(" ,.-")
             if not seg:
                 continue
-        m = _NUM_STREET_RE.match(seg)
+        m = _NUM_STREET_RE.match(seg) or _NUM_GLUED_RE.match(seg)
         if m and (
             street is None
             or (number is None and name is None and street.split()[-1] in AMBIGUOUS_NAME_SUFFIXES)
@@ -455,15 +481,15 @@ def _classify_segments(segs: list[str]) -> dict[str, str | None]:
 # =============================================================================================
 def parse_uk_address(raw_text: str) -> ParsedAddress:
     """Parse le texte OCR brut d'une étiquette. Retourne un `ParsedAddress` (postcode=None si absent)."""
-    lines = _select_delivery_lines(_strip_noise(_clean_lines(raw_text)))
-    located = _locate_postcode(lines)
+    lines, anchored = _select_delivery_lines(_strip_noise(_clean_lines(raw_text)))
+    located = _locate_postcode(lines, anchored)
     if located is None:
         return ParsedAddress()
-    postcode, idx, prefix = located
+    postcode, idx, prefix, start = located
     normalized = normalize_postcode(postcode)
     if normalized is None:
         return ParsedAddress()
-    pre_lines = lines[:idx] + ([prefix] if prefix else [])
+    pre_lines = lines[start:idx] + ([prefix] if prefix else [])
     segments = [s for line in pre_lines for s in (p.strip(" ,.-") for p in line.split(",")) if s]
     return ParsedAddress(postcode=normalized, **_classify_segments(segments))
 
