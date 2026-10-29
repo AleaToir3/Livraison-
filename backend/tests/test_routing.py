@@ -261,4 +261,5 @@ async def test_process_pool_runs_two_solves_in_parallel():
     finally:
         pool.shutdown()
     assert len(a.order) == len(b.order) == 39
-    assert wall < 290  # deux résolutions de 150 ms en parallèle, pas 300 ms en série
+    # En parallèle, le temps mur est proche d'une résolution ; en série il serait la somme des deux.
+    assert wall < 0.9 * (a.solve_ms + b.solve_ms)
