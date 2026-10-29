@@ -2,7 +2,7 @@
   "name": "uk-last-mile-mobile",
   "version": "1.0.0",
   "private": true,
-  "description": "Scanner d'étiquettes UK temps réel (OCR embarqué, WebSocket) et écran de tournée par Parking Clusters",
+  "description": "Scanner d'\u00e9tiquettes UK temps r\u00e9el (OCR embarqu\u00e9, WebSocket) et \u00e9cran de tourn\u00e9e par Parking Clusters",
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test __tests__/*.test.ts",
@@ -22,8 +22,15 @@
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
+    "@babel/preset-env": "^7.25.3",
+    "@babel/runtime": "^7.25.0",
+    "@react-native-community/cli": "15.0.1",
+    "@react-native-community/cli-platform-android": "15.0.1",
+    "@react-native-community/cli-platform-ios": "15.0.1",
     "@react-native/babel-preset": "0.76.9",
+    "@react-native/metro-config": "0.76.9",
     "@react-native/typescript-config": "0.76.9",
+    "@types/node": "^22.10.0",
     "@types/react": "18.3.12",
     "tsx": "4.19.2",
     "typescript": "5.6.3"
