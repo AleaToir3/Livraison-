@@ -195,7 +195,11 @@ export function UKFastScanner({ socket, active, onOpenRoute, onOpenSettings }: U
     },
     [session, submitFast, captureFallback],
   );
-  const onOcrText = useRunOnJS(handleOcrText, [handleOcrText]);
+  // La fonction passée à useRunOnJS reste la même pendant toute la vie du composant : une version qui change
+  // à chaque rendu a fait planter worklets-core en natif (SIGSEGV) sur un Honor RMO-NX1, Android 13.
+  const handleOcrTextRef = useRef(handleOcrText);
+  handleOcrTextRef.current = handleOcrText;
+  const onOcrText = useRunOnJS((text: string) => handleOcrTextRef.current(text), []);
   const ocrFps = config.ocrFps;
   // Le livreur zoome sur l'adresse : l'OCR ne doit lire que le cadre jaune, pas l'étiquette d'un colis voisin.
   const guideBox = useMemo(() => guideRect(view), [view]);
