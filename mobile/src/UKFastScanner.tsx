@@ -254,19 +254,23 @@ export function UKFastScanner({ socket, active, onOpenRoute, onOpenSettings }: U
 
   return (
     <View style={styles.fill} onLayout={onLayout}>
-      <Camera
-        ref={camera}
-        style={StyleSheet.absoluteFill}
-        device={device}
-        format={format}
-        isActive={active && appState === 'active'}
-        frameProcessor={frameProcessor}
-        pixelFormat="yuv"
-        video // requis par takeSnapshot() sur iOS
-        torch={torch ? 'on' : 'off'}
-        zoom={Math.min(device.maxZoom, Math.max(device.minZoom, device.neutralZoom * zoomFactor))}
-        enableZoomGesture
-      />
+      {/* Monté seulement quand la taille est connue : le Frame Processor dépend de guideBox/viewSize. S'il est
+          recréé juste après l'ouverture (0×0 → taille réelle), worklets-core a planté en natif (mutex détruit). */}
+      {view.width > 0 ? (
+        <Camera
+          ref={camera}
+          style={StyleSheet.absoluteFill}
+          device={device}
+          format={format}
+          isActive={active && appState === 'active'}
+          frameProcessor={frameProcessor}
+          pixelFormat="yuv"
+          video // requis par takeSnapshot() sur iOS
+          torch={torch ? 'on' : 'off'}
+          zoom={Math.min(device.maxZoom, Math.max(device.minZoom, device.neutralZoom * zoomFactor))}
+          enableZoomGesture
+        />
+      ) : null}
 
       <View pointerEvents="none" style={[styles.guide, { left: guide.x, top: guide.y, width: guide.width, height: guide.height }]} />
 
