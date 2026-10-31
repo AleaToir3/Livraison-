@@ -11,12 +11,12 @@
     "start": "react-native start"
   },
   "dependencies": {
-    "@dr.pogodin/react-native-fs": "2.41.0",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-ml-kit/text-recognition": "2.0.0",
     "@shopify/react-native-skia": "1.12.4",
     "react": "18.3.1",
     "react-native": "0.76.9",
+    "react-native-fs": "2.20.0",
     "react-native-vision-camera": "4.7.3"
   },
   "devDependencies": {

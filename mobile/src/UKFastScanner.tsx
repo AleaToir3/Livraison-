@@ -13,8 +13,8 @@
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, AppState, Pressable, StyleSheet, Text, Vibration, View, type LayoutChangeEvent } from 'react-native';
-import { unlink } from '@dr.pogodin/react-native-fs';
 import TextRecognition from '@react-native-ml-kit/text-recognition';
+import { unlink } from 'react-native-fs';
 import { Camera, useCameraDevice, useCameraFormat, useCameraPermission } from 'react-native-vision-camera';
 
 import { config } from './config';
