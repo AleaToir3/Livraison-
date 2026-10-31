@@ -20,6 +20,8 @@ import {
   useColorScheme,
 } from 'react-native';
 
+import { mapsLegUrls } from './mapsLinks';
+import { ROUTE_STORAGE_KEY, confirmClearParcels } from './newTour';
 import { ApiError, optimizeRoute } from './routeApi';
 import { parcelSignature } from './routeBody';
 import {
@@ -35,8 +37,6 @@ import {
 } from './routeProgress';
 import { parcelStore, settingsStore, useParcels, useSettings } from './stores';
 import type { ParkingCluster, RouteResponse } from './types';
-
-const STORAGE_KEY = 'route:v1';
 
 type Load =
   | { state: 'loading' }
@@ -63,6 +63,10 @@ function openNavigation(lat: number, lon: number): void {
   Linking.openURL(native).catch(() =>
     Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lon}&travelmode=driving`),
   );
+}
+
+function openUrl(url: string): void {
+  Linking.openURL(url).catch(() => undefined);
 }
 
 export interface DriverRouteScreenProps {
@@ -94,7 +98,7 @@ export function DriverRouteScreen({ onBack }: DriverRouteScreenProps): React.JSX
     let cancelled = false;
     (async () => {
       try {
-        const raw = await AsyncStorage.getItem(STORAGE_KEY);
+        const raw = await AsyncStorage.getItem(ROUTE_STORAGE_KEY);
         const saved = raw ? (JSON.parse(raw) as Saved) : null;
         if (!cancelled && saved && saved.signature === signature) {
           setProgress(saved.progress);
@@ -117,13 +121,21 @@ export function DriverRouteScreen({ onBack }: DriverRouteScreenProps): React.JSX
     if (load.state !== 'ready') return;
     const timer = setTimeout(() => {
       const saved: Saved = { signature, route: load.route, progress };
-      AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(saved)).catch(() => undefined);
+      AsyncStorage.setItem(ROUTE_STORAGE_KEY, JSON.stringify(saved)).catch(() => undefined);
     }, 250);
     return () => clearTimeout(timer);
   }, [load, progress, signature]);
 
   const route = load.state === 'ready' ? load.route : null;
   const active = route ? activeClusterIndex(route, progress) : -1;
+
+  // Tous les stationnements restants dans l'ordre, puis le dépôt : un seul lien Google Maps (ou quelques-uns au-delà de 10 étapes).
+  const remaining = route ? route.plan.clusters.filter((cl) => !progress.completed[cl.index]).length : 0;
+  const legUrls = useMemo(() => {
+    if (!route || remaining === 0) return [];
+    const parks = route.plan.clusters.filter((cl) => !progress.completed[cl.index]).map((cl) => cl.park);
+    return mapsLegUrls([...parks, depot]);
+  }, [route, progress, remaining, depot]);
 
   useEffect(() => {
     if (active < 0) return;
@@ -173,6 +185,7 @@ export function DriverRouteScreen({ onBack }: DriverRouteScreenProps): React.JSX
         <Text style={[styles.backText, { color: c.text }]}>← Scan</Text>
       </Pressable>
       {route ? <Summary route={route} progress={progress} colors={c} /> : null}
+      {legUrls.length > 0 ? <TourLauncher urls={legUrls} stops={remaining} colors={c} /> : null}
     </View>
   );
 
@@ -271,6 +284,9 @@ export function DriverRouteScreen({ onBack }: DriverRouteScreenProps): React.JSX
             <Pressable accessibilityRole="button" onPress={() => void compute()} style={styles.link}>
               <Text style={{ color: c.sub, fontSize: 14 }}>Recalculer la tournée</Text>
             </Pressable>
+            <Pressable accessibilityRole="button" onPress={() => confirmClearParcels(onBack)} style={styles.link}>
+              <Text style={{ color: c.warn, fontSize: 15, fontWeight: '700' }}>Nouvelle tournée (vider la liste)</Text>
+            </Pressable>
           </View>
         }
       />
@@ -296,6 +312,50 @@ function Summary({ route, progress, colors: c }: { route: RouteResponse; progres
           Gain vs GPS classique : {formatDuration(saved)} ({route.comparison.saved_pct.toFixed(1)} %)
         </Text>
       ) : null}
+    </View>
+  );
+}
+
+/** « Lancer tous les arrêts » : un tap ouvre Google Maps avec la suite des arrêts et le retour au dépôt. */
+function TourLauncher({ urls, stops, colors: c }: { urls: string[]; stops: number; colors: ReturnType<typeof palette> }) {
+  const [only] = urls;
+  if (urls.length === 1 && only) {
+    return (
+      <View style={styles.launcher}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Lancer les ${stops} arrêts restants dans Google Maps`}
+          onPress={() => openUrl(only)}
+          style={[styles.launchButton, { backgroundColor: c.accent }]}
+        >
+          <Text style={[styles.launchText, { color: c.onAccent }]}>
+            Lancer {stops > 1 ? `les ${stops} arrêts` : 'le dernier arrêt'} dans Google Maps
+          </Text>
+        </Pressable>
+        <Text style={[styles.launchNote, { color: c.sub }]}>Dans l'ordre, puis retour au dépôt. Appuyez sur « Démarrer » dans Maps.</Text>
+      </View>
+    );
+  }
+  return (
+    <View style={styles.launcher}>
+      <Text style={[styles.launchNote, { color: c.text }]}>
+        {stops} arrêts : Google Maps en accepte 10 à la fois. Lancez la partie 1, puis la suivante quand elle est finie.
+      </Text>
+      <View style={styles.launchRow}>
+        {urls.map((url, i) => (
+          <Pressable
+            key={url}
+            accessibilityRole="button"
+            accessibilityLabel={`Lancer la partie ${i + 1} sur ${urls.length} dans Google Maps`}
+            onPress={() => openUrl(url)}
+            style={[styles.launchButton, styles.grow, { backgroundColor: c.accent }]}
+          >
+            <Text style={[styles.launchText, { color: c.onAccent }]}>
+              Partie {i + 1}/{urls.length}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
     </View>
   );
 }
@@ -443,4 +503,9 @@ const styles = StyleSheet.create({
   warnTitle: { fontSize: 16, fontWeight: '800' },
   smallButton: { minHeight: 48, borderWidth: 2, borderRadius: 12, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
   link: { minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+  launcher: { gap: 6, marginTop: 10 },
+  launchRow: { flexDirection: 'row', gap: 8 },
+  launchButton: { minHeight: 52, borderRadius: 14, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 },
+  launchText: { fontSize: 17, fontWeight: '900', textAlign: 'center' },
+  launchNote: { fontSize: 13 },
 });

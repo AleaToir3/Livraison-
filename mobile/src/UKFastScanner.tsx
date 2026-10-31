@@ -18,6 +18,7 @@ import { unlink } from 'react-native-fs';
 import { Camera, useCameraDevice, useCameraFormat, useCameraPermission } from 'react-native-vision-camera';
 
 import { config } from './config';
+import { confirmClearParcels } from './newTour';
 import { textInGuide, uprightSize } from './ocrRegion';
 import { cropSnapshotToWebp, type RoiRect, type ViewSize } from './roiEncoder';
 import { extractImage } from './routeApi';
@@ -318,6 +319,17 @@ export function UKFastScanner({ socket, active, onOpenRoute, onOpenSettings }: U
         ))}
       </View>
 
+      {parcels.length > 0 ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Vider la liste de ${parcels.length} colis`}
+          onPress={() => confirmClearParcels(() => flash('Liste vidée'))}
+          style={styles.clear}
+        >
+          <Text style={styles.pillText}>Vider la liste</Text>
+        </Pressable>
+      ) : null}
+
       <View style={styles.topBar} pointerEvents="none">
         <View style={[styles.pill, { backgroundColor: status.color }]}>
           <Text style={styles.pillText}>{status.text}</Text>
@@ -407,6 +419,7 @@ const styles = StyleSheet.create({
   zoomButtonOn: { backgroundColor: '#ffd400' },
   zoomText: { color: '#fff', fontSize: 17, fontWeight: '800' },
   zoomTextOn: { color: '#111' },
+  clear: { position: 'absolute', top: 54, left: 12, minHeight: 44, paddingHorizontal: 14, borderRadius: 22, backgroundColor: 'rgba(0,0,0,0.65)', alignItems: 'center', justifyContent: 'center', zIndex: 5 },
   pill: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16 },
   pillDark: { backgroundColor: 'rgba(0,0,0,0.65)' },
   pillText: { color: '#fff', fontSize: 14, fontWeight: '600' },
