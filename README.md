@@ -121,8 +121,11 @@ Ce qui a été fait :
 
 ## Écarts avec le cahier des charges
 
-- **OCR iOS** : le plugin utilisé (`react-native-vision-camera-text-recognition`) emploie Google ML Kit
+- **OCR iOS** : le module utilisé (`@react-native-ml-kit/text-recognition`) emploie Google ML Kit
   sur Android **et** iOS. Ce n'est pas Apple VisionKit. Le code Swift/Kotlin natif n'est pas écrit ici.
+- **Pas de Frame Processor** : l'app lit un instantané de l'aperçu toutes les ~0,6 s au lieu d'analyser ~8 images/s.
+  Le Frame Processor demande `react-native-worklets-core`, qui plantait en natif (SIGSEGV, mutex détruit) sur un
+  Honor sous Android 13. L'instantané n'utilise que des API stables de VisionCamera et de ML Kit.
 - **`ORJSONResponse`** : la classe de FastAPI est dépréciée (v0.162). Une classe équivalente, basée sur `orjson`, est dans `main.py`.
 - **ROI du chemin lent** : c'est le cadre de visée à l'écran, pas la boîte englobante de l'OCR
   (l'OCR a justement échoué dans ce cas).
@@ -131,8 +134,8 @@ Ce qui a été fait :
 
 ## Ce qui n'a PAS été vérifié
 
-- **L'app sur un appareil.** Le TypeScript passe `tsc --noEmit` en mode strict et compile avec Babel
-  + le plugin worklets ; 86 tests Node couvrent la logique (parseur, client WS, anti-doublon, progression,
+- **L'app sur un appareil.** Le TypeScript passe `tsc --noEmit` en mode strict et compile avec Babel ;
+  87 tests Node couvrent la logique (parseur, client WS, anti-doublon, progression,
   réglages, filtre du cadre). L'APK Android est construit par GitHub Actions. Mais la caméra, l'OCR, Skia et
   `takeSnapshot` n'ont jamais tourné sur un téléphone. L'orientation de l'instantané iOS est à valider,
   et le filtre « texte dans le cadre » suppose que ML Kit renvoie des coordonnées d'image redressée.

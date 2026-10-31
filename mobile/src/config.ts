@@ -3,8 +3,8 @@
  * utilisateur : voir `settings.ts` et l'écran Réglages.
  */
 export interface ScannerTuning {
-  /** Cadence de l'OCR embarqué (images analysées par seconde). */
-  ocrFps: number;
+  /** Pause minimale entre deux lectures OCR (ms). Une lecture = un instantané + ML Kit sur l'appareil. */
+  ocrIntervalMs: number;
   /** Nombre de lectures identiques consécutives avant d'envoyer un scan (anti-erreur d'OCR). */
   confirmReads: number;
   /** Absence minimale de l'étiquette du champ avant de pouvoir renvoyer la même adresse (ms). */
@@ -15,7 +15,7 @@ export interface ScannerTuning {
 }
 
 export const config: ScannerTuning = {
-  ocrFps: 8,
+  ocrIntervalMs: 600,
   confirmReads: 2,
   dedupeMs: 2500,
   unreadableMs: 2500,

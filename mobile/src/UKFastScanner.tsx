@@ -1,8 +1,9 @@
 /**
  * Scanner d'étiquettes UK « zéro latence ».
  *
- *  1. Frame Processor VisionCamera : l'OCR tourne sur le matériel du téléphone (Google ML Kit, via le
- *     plugin `react-native-vision-camera-text-recognition`), ~8 images/s, sans quitter l'appareil.
+ *  1. Boucle de lecture : un instantané de l'aperçu toutes les ~0,6 s, lu par Google ML Kit sur le téléphone
+ *     (`@react-native-ml-kit/text-recognition`), sans quitter l'appareil. Pas de Frame Processor : il demande
+ *     worklets-core, qui plantait en natif sur certains appareils.
  *  2. Le texte est parsé en local (`parseUkAddress`, miroir du parseur serveur).
  *  3. Fast-path (cas nominal) : code postal + numéro / nom de bâtiment valides => un message JSON de
  *     ~30 octets part sur le WebSocket déjà ouvert ; le serveur répond avec les coordonnées de la porte.
@@ -12,20 +13,12 @@
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, AppState, Pressable, StyleSheet, Text, Vibration, View, type LayoutChangeEvent } from 'react-native';
-import {
-  Camera,
-  runAsync,
-  runAtTargetFps,
-  useCameraDevice,
-  useCameraFormat,
-  useCameraPermission,
-  useFrameProcessor,
-} from 'react-native-vision-camera';
-import { useTextRecognition } from 'react-native-vision-camera-text-recognition';
-import { useRunOnJS } from 'react-native-worklets-core';
+import { unlink } from '@dr.pogodin/react-native-fs';
+import TextRecognition from '@react-native-ml-kit/text-recognition';
+import { Camera, useCameraDevice, useCameraFormat, useCameraPermission } from 'react-native-vision-camera';
 
 import { config } from './config';
-import { textInGuide, type OcrBlock } from './ocrRegion';
+import { textInGuide, uprightSize } from './ocrRegion';
 import { cropSnapshotToWebp, type RoiRect, type ViewSize } from './roiEncoder';
 import { extractImage } from './routeApi';
 import { buildScanRequest, buildingToken } from './scanPayload';
@@ -35,8 +28,11 @@ import { parcelStore, useParcels } from './stores';
 import type { Parcel } from './types';
 import { displayAddress, parseStructured, type ParsedAddress } from './ukAddressParser';
 
-/** Objet stable : le plugin recrée son reconnaisseur natif si la référence change. */
-const OCR_OPTIONS = { language: 'latin' } as const;
+/** Lectures ratées d'affilée avant d'afficher une alerte (sinon une caméra bloquée resterait muette). */
+const OCR_FAILURES_BEFORE_HINT = 5;
+
+/** Le chemin d'un instantané peut venir avec ou sans `file://` selon la plateforme. */
+const stripFileScheme = (path: string): string => path.replace(/^file:\/\//, '');
 
 /** Cadre de visée : 90 % de la largeur, 30 % de la hauteur, légèrement au-dessus du centre. */
 export function guideRect(view: ViewSize): RoiRect {
@@ -62,7 +58,6 @@ export function UKFastScanner({ socket, active, onOpenRoute, onOpenSettings }: U
   const { hasPermission, requestPermission } = useCameraPermission();
   const device = useCameraDevice('back');
   const format = useCameraFormat(device, [{ videoResolution: { width: 1280, height: 720 } }, { fps: 30 }]);
-  const { scanText } = useTextRecognition(OCR_OPTIONS);
   const camera = useRef<Camera>(null);
 
   const [view, setView] = useState<ViewSize>({ width: 0, height: 0 });
@@ -154,8 +149,10 @@ export function UKFastScanner({ socket, active, onOpenRoute, onOpenSettings }: U
       setBusy(true);
       if (manual) session.noteManualFallback(Date.now());
       flash('Lecture de l\'étiquette abîmée…');
+      let snapshotPath: string | undefined;
       try {
         const snapshot = await camera.current.takeSnapshot({ quality: 85 });
+        snapshotPath = snapshot.path;
         const webp = await cropSnapshotToWebp(snapshot.path, guideRect(size), size);
         const result = await extractImage(webp);
         const a = result.address;
@@ -179,6 +176,7 @@ export function UKFastScanner({ socket, active, onOpenRoute, onOpenSettings }: U
       } catch (error) {
         flash(`Lecture impossible : ${error instanceof Error ? error.message : 'erreur'}`);
       } finally {
+        if (snapshotPath) void unlink(stripFileScheme(snapshotPath)).catch(() => {});
         busyRef.current = false;
         setBusy(false);
       }
@@ -186,7 +184,7 @@ export function UKFastScanner({ socket, active, onOpenRoute, onOpenSettings }: U
     [session, flash],
   );
 
-  // --- OCR : texte reçu du Frame Processor (thread JS) ------------------------------------------------
+  // --- OCR : un instantané, lu par ML Kit, toutes les `ocrIntervalMs` ---------------------------------------
   const handleOcrText = useCallback(
     (text: string) => {
       const decision = session.ingest(text, Date.now());
@@ -195,33 +193,53 @@ export function UKFastScanner({ socket, active, onOpenRoute, onOpenSettings }: U
     },
     [session, submitFast, captureFallback],
   );
-  // La fonction passée à useRunOnJS reste la même pendant toute la vie du composant : une version qui change
-  // à chaque rendu a fait planter worklets-core en natif (SIGSEGV) sur un Honor RMO-NX1, Android 13.
   const handleOcrTextRef = useRef(handleOcrText);
   handleOcrTextRef.current = handleOcrText;
-  const onOcrText = useRunOnJS((text: string) => handleOcrTextRef.current(text), []);
-  const ocrFps = config.ocrFps;
+  const failuresRef = useRef(0);
+
   // Le livreur zoome sur l'adresse : l'OCR ne doit lire que le cadre jaune, pas l'étiquette d'un colis voisin.
   const guideBox = useMemo(() => guideRect(view), [view]);
-  const viewSize = useMemo(() => ({ width: view.width, height: view.height }), [view]);
 
-  const frameProcessor = useFrameProcessor(
-    (frame) => {
-      'worklet';
-      runAtTargetFps(ocrFps, () => {
-        'worklet';
-        // runAsync : l'OCR n'occupe pas le thread du preview ; si l'OCR est en retard, les images sont ignorées.
-        runAsync(frame, () => {
-          'worklet';
-          const result = scanText(frame) as unknown as { resultText?: string; blocks?: OcrBlock[] } | null | undefined;
-          if (!result?.resultText) return;
-          const text = textInGuide(result.blocks, result.resultText, { width: frame.width, height: frame.height }, viewSize, guideBox);
-          if (text.length > 4) onOcrText(text);
-        });
-      });
-    },
-    [scanText, onOcrText, ocrFps, viewSize, guideBox],
-  );
+  /** Une lecture. Retourne sans bruit si la caméra n'est pas prête ; l'échec d'une image ne coupe pas la boucle. */
+  const readLabelOnce = useCallback(async () => {
+    const size = viewRef.current;
+    if (!camera.current || size.width === 0) return;
+    let path: string | undefined;
+    try {
+      const snapshot = await camera.current.takeSnapshot({ quality: 70 });
+      path = snapshot.path;
+      const result = await TextRecognition.recognize(`file://${stripFileScheme(path)}`);
+      failuresRef.current = 0;
+      if (!result.text) return;
+      const text = textInGuide(result.blocks, result.text, uprightSize(snapshot.width, snapshot.height), size, guideRect(size));
+      if (text.length > 4) handleOcrTextRef.current(text);
+    } catch (error) {
+      failuresRef.current += 1;
+      if (failuresRef.current === OCR_FAILURES_BEFORE_HINT) {
+        flash(`Lecture caméra impossible : ${error instanceof Error ? error.message : 'erreur'}`);
+      }
+    } finally {
+      if (path) void unlink(stripFileScheme(path)).catch(() => {});
+    }
+  }, [flash]);
+
+  const scanning = active && appState === 'active' && view.width > 0 && Boolean(device);
+  useEffect(() => {
+    if (!scanning) return;
+    let stopped = false;
+    void (async () => {
+      while (!stopped) {
+        const startedAt = Date.now();
+        // Pas de lecture pendant le chemin lent : les deux utilisent l'instantané de la caméra.
+        if (!busyRef.current) await readLabelOnce();
+        const pause = config.ocrIntervalMs - (Date.now() - startedAt);
+        if (pause > 0) await new Promise<void>((resolve) => setTimeout(resolve, pause));
+      }
+    })();
+    return () => {
+      stopped = true;
+    };
+  }, [scanning, readLabelOnce]);
 
   const onLayout = useCallback((e: LayoutChangeEvent) => {
     const { width, height } = e.nativeEvent.layout;
@@ -254,8 +272,6 @@ export function UKFastScanner({ socket, active, onOpenRoute, onOpenSettings }: U
 
   return (
     <View style={styles.fill} onLayout={onLayout}>
-      {/* Monté seulement quand la taille est connue : le Frame Processor dépend de guideBox/viewSize. S'il est
-          recréé juste après l'ouverture (0×0 → taille réelle), worklets-core a planté en natif (mutex détruit). */}
       {view.width > 0 ? (
         <Camera
           ref={camera}
@@ -263,8 +279,8 @@ export function UKFastScanner({ socket, active, onOpenRoute, onOpenSettings }: U
           device={device}
           format={format}
           isActive={active && appState === 'active'}
-          frameProcessor={frameProcessor}
-          pixelFormat="yuv"
+          // takeSnapshot() lit le bitmap de l'aperçu : il est vide avec le mode par défaut « surface-view » sur Android.
+          androidPreviewViewType="texture-view"
           video // requis par takeSnapshot() sur iOS
           torch={torch ? 'on' : 'off'}
           zoom={Math.min(device.maxZoom, Math.max(device.minZoom, device.neutralZoom * zoomFactor))}
