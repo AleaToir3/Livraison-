@@ -65,6 +65,7 @@ export function UKFastScanner({ socket, active, onOpenRoute, onOpenSettings }: U
   const [socketStatus, setSocketStatus] = useState<SocketStatus>(socket.getStatus());
   const [torch, setTorch] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [cameraReady, setCameraReady] = useState(false);
   const [hint, setHint] = useState<string | null>(null);
   const [zoomFactor, setZoomFactor] = useState(1);
   const busyRef = useRef(false);
@@ -144,7 +145,7 @@ export function UKFastScanner({ socket, active, onOpenRoute, onOpenSettings }: U
   const captureFallback = useCallback(
     async (manual: boolean) => {
       const size = viewRef.current;
-      if (busyRef.current || !camera.current || size.width === 0) return;
+      if (busyRef.current || !cameraReady || !camera.current || size.width === 0) return;
       busyRef.current = true;
       setBusy(true);
       if (manual) session.noteManualFallback(Date.now());
@@ -181,7 +182,7 @@ export function UKFastScanner({ socket, active, onOpenRoute, onOpenSettings }: U
         setBusy(false);
       }
     },
-    [session, flash],
+    [session, flash, cameraReady],
   );
 
   // --- OCR : un instantané, lu par ML Kit, toutes les `ocrIntervalMs` ---------------------------------------
@@ -223,7 +224,15 @@ export function UKFastScanner({ socket, active, onOpenRoute, onOpenSettings }: U
     }
   }, [flash]);
 
-  const scanning = active && appState === 'active' && view.width > 0 && Boolean(device);
+  // Une caméra sans vue native (montage en cours) fait planter takeSnapshot() côté Java, sans exception JS :
+  // la boucle ne démarre qu'une fois `onInitialized` reçu, et s'arrête si la caméra est démontée.
+  const cameraMounted = view.width > 0 && Boolean(device);
+  useEffect(() => {
+    if (!cameraMounted) setCameraReady(false);
+  }, [cameraMounted]);
+  const onCameraInitialized = useCallback(() => setCameraReady(true), []);
+
+  const scanning = active && appState === 'active' && cameraMounted && cameraReady;
   useEffect(() => {
     if (!scanning) return;
     let stopped = false;
@@ -279,6 +288,7 @@ export function UKFastScanner({ socket, active, onOpenRoute, onOpenSettings }: U
           device={device}
           format={format}
           isActive={active && appState === 'active'}
+          onInitialized={onCameraInitialized}
           // takeSnapshot() lit le bitmap de l'aperçu : il est vide avec le mode par défaut « surface-view » sur Android.
           androidPreviewViewType="texture-view"
           video // requis par takeSnapshot() sur iOS
