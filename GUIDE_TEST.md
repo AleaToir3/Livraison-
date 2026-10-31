@@ -35,6 +35,12 @@ Plus tard : ajoutez `GEMINI_API_KEY` et une clé d'adresses précises (`IDEAL_PO
    L'app ne lit que ce qui est dans le cadre.
 2. 👤 Un bip de vibration confirme le scan ; la ligne passe de `…` à `✓` (ou `≈` si la position est approximative).
 3. 👤 Scannez 5 à 10 colis, puis **Tournée**.
+   En haut de l'écran Tournée, deux boutons changent le calcul :
+   - **Départ : dépôt / ma position** : « ma position » utilise le GPS du téléphone (le téléphone demande l'autorisation).
+     C'est le bon choix si vous n'êtes pas au dépôt, par exemple chez vous pour tester ;
+   - **Retour au départ : oui / non** : « non » arrête la tournée au dernier arrêt, sans retour.
+
+   Le gros bouton jaune **Lancer les N arrêts** ouvre Google Maps avec tous les arrêts dans l'ordre calculé.
 4. 👤 Envoyez-moi : une capture d'écran de ce qui ne va pas, et l'étiquette (photo) si la lecture est fausse.
 
 ## Si ça ne marche pas

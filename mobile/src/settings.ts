@@ -1,5 +1,6 @@
 /**
- * Réglages saisis sur le téléphone : adresse du serveur, clé API, dépôt.
+ * Réglages saisis sur le téléphone : adresse du serveur, clé API, dépôt, et les deux choix de tournée
+ * (partir de la position GPS, revenir au point de départ).
  * Stockés localement (AsyncStorage) : aucun secret dans le code ni dans Git, et le même APK sert pour
  * n'importe quel serveur.
  */
@@ -9,13 +10,26 @@ export interface Settings {
   serverUrl: string; // https://mon-serveur.onrender.com (sans slash final)
   apiKey: string;
   depot: Depot;
+  /** La tournée part de la position GPS du téléphone au lieu du dépôt. */
+  startFromGps: boolean;
+  /** La tournée se termine au point de départ ; sinon elle s'arrête au dernier arrêt. */
+  returnToDepot: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   serverUrl: '',
   apiKey: '',
   depot: { lat: 53.7996, lon: -1.5491, label: 'Dépôt' },
+  startFromGps: false,
+  returnToDepot: true,
 };
+
+/** Cadre du Royaume-Uni accepté par le serveur pour le départ de la tournée. */
+export const UK_BOUNDS = { latMin: 49.8, latMax: 60.95, lonMin: -8.7, lonMax: 1.85 };
+
+export function isInUk(lat: number, lon: number): boolean {
+  return lat >= UK_BOUNDS.latMin && lat <= UK_BOUNDS.latMax && lon >= UK_BOUNDS.lonMin && lon <= UK_BOUNDS.lonMax;
+}
 
 export interface KeyValueStorage {
   getItem(key: string): Promise<string | null>;
@@ -90,6 +104,8 @@ export class SettingsStore {
           serverUrl: typeof saved.serverUrl === 'string' ? saved.serverUrl : '',
           apiKey: typeof saved.apiKey === 'string' ? saved.apiKey : '',
           depot: { ...DEFAULT_SETTINGS.depot, ...(saved.depot ?? {}) },
+          startFromGps: saved.startFromGps === true,
+          returnToDepot: saved.returnToDepot !== false,
         };
         this.emit();
       }

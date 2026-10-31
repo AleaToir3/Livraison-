@@ -9,6 +9,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Linking,
   Platform,
@@ -20,6 +21,7 @@ import {
   useColorScheme,
 } from 'react-native';
 
+import { LocationError, MY_POSITION_LABEL, currentPosition } from './location';
 import { mapsLegUrls } from './mapsLinks';
 import { ROUTE_STORAGE_KEY, confirmClearParcels } from './newTour';
 import { ApiError, optimizeRoute } from './routeApi';
@@ -35,6 +37,7 @@ import {
   toggleDelivery,
   type Progress,
 } from './routeProgress';
+import type { Settings } from './settings';
 import { parcelStore, settingsStore, useParcels, useSettings } from './stores';
 import type { ParkingCluster, RouteResponse } from './types';
 
@@ -76,7 +79,7 @@ export interface DriverRouteScreenProps {
 export function DriverRouteScreen({ onBack }: DriverRouteScreenProps): React.JSX.Element {
   const c = palette(useColorScheme() === 'dark');
   const parcels = useParcels();
-  const { depot } = useSettings();
+  const { startFromGps, returnToDepot } = useSettings();
   const signature = useMemo(() => parcelSignature(parcels), [parcels]);
   const [load, setLoad] = useState<Load>({ state: 'loading' });
   const [progress, setProgress] = useState<Progress>(EMPTY_PROGRESS);
@@ -85,11 +88,14 @@ export function DriverRouteScreen({ onBack }: DriverRouteScreenProps): React.JSX
   const compute = useCallback(async () => {
     setLoad({ state: 'loading' });
     try {
-      const route = await optimizeRoute(parcels, settingsStore.getSnapshot().depot);
+      const settings = settingsStore.getSnapshot();
+      const origin = settings.startFromGps ? { ...(await currentPosition()), label: MY_POSITION_LABEL } : settings.depot;
+      const route = await optimizeRoute(parcels, origin, settings.returnToDepot);
       setProgress(EMPTY_PROGRESS);
       setLoad({ state: 'ready', route });
     } catch (error) {
-      setLoad({ state: 'error', message: error instanceof ApiError ? error.message : 'erreur inattendue' });
+      const known = error instanceof ApiError || error instanceof LocationError;
+      setLoad({ state: 'error', message: known ? error.message : 'erreur inattendue' });
     }
   }, [parcels]);
 
@@ -129,13 +135,32 @@ export function DriverRouteScreen({ onBack }: DriverRouteScreenProps): React.JSX
   const route = load.state === 'ready' ? load.route : null;
   const active = route ? activeClusterIndex(route, progress) : -1;
 
-  // Tous les stationnements restants dans l'ordre, puis le dépôt : un seul lien Google Maps (ou quelques-uns au-delà de 10 étapes).
+  // Tous les stationnements restants dans l'ordre, puis le retour au départ si la tournée est fermée : un seul lien
+  // Google Maps (ou quelques-uns au-delà de 10 étapes).
   const remaining = route ? route.plan.clusters.filter((cl) => !progress.completed[cl.index]).length : 0;
+  const returnsHome = route?.return_to_depot !== false;
   const legUrls = useMemo(() => {
     if (!route || remaining === 0) return [];
     const parks = route.plan.clusters.filter((cl) => !progress.completed[cl.index]).map((cl) => cl.park);
-    return mapsLegUrls([...parks, depot]);
-  }, [route, progress, remaining, depot]);
+    return mapsLegUrls(returnsHome ? [...parks, route.depot] : parks);
+  }, [route, progress, remaining, returnsHome]);
+
+  // Changer le départ ou le retour recalcule la tournée ; les colis déjà cochés seraient perdus, d'où la confirmation.
+  const hasProgress = route ? counts(route, progress).done > 0 : false;
+  const changeOption = useCallback(
+    (patch: Partial<Pick<Settings, 'startFromGps' | 'returnToDepot'>>) => {
+      const apply = () => {
+        settingsStore.save({ ...settingsStore.getSnapshot(), ...patch }).catch(() => undefined);
+        void compute();
+      };
+      if (!hasProgress) return apply();
+      Alert.alert('Recalculer la tournée ?', 'Les colis déjà cochés seront décochés.', [
+        { text: 'Annuler', style: 'cancel' },
+        { text: 'Recalculer', onPress: apply },
+      ]);
+    },
+    [compute, hasProgress],
+  );
 
   useEffect(() => {
     if (active < 0) return;
@@ -185,7 +210,14 @@ export function DriverRouteScreen({ onBack }: DriverRouteScreenProps): React.JSX
         <Text style={[styles.backText, { color: c.text }]}>← Scan</Text>
       </Pressable>
       {route ? <Summary route={route} progress={progress} colors={c} /> : null}
-      {legUrls.length > 0 ? <TourLauncher urls={legUrls} stops={remaining} colors={c} /> : null}
+      <TourOptions
+        startFromGps={startFromGps}
+        returnToDepot={returnToDepot}
+        disabled={load.state === 'loading'}
+        onChange={changeOption}
+        colors={c}
+      />
+      {legUrls.length > 0 ? <TourLauncher urls={legUrls} stops={remaining} returns={returnsHome} colors={c} /> : null}
     </View>
   );
 
@@ -217,6 +249,8 @@ export function DriverRouteScreen({ onBack }: DriverRouteScreenProps): React.JSX
   }
 
   const done = active < 0;
+  const home = load.route.depot;
+  const startedHere = home.label === MY_POSITION_LABEL;
   return (
     <View style={[styles.fill, { backgroundColor: c.bg }]}>
       {header}
@@ -270,17 +304,29 @@ export function DriverRouteScreen({ onBack }: DriverRouteScreenProps): React.JSX
         )}
         ListFooterComponent={
           <View style={[styles.card, { backgroundColor: c.card, borderColor: done ? c.ok : c.line }]}>
-            <Text style={[styles.cardTitle, { color: c.text }]}>{done ? 'Tournée terminée' : 'Puis'} : retour au dépôt</Text>
-            <Text style={[styles.body, { color: c.sub }]}>
-              {depot.label} · {formatDuration(load.route.plan.drive_back_s)} de route
-            </Text>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => openNavigation(depot.lat, depot.lon)}
-              style={[styles.smallButton, { borderColor: c.line }]}
-            >
-              <Text style={{ color: c.text, fontWeight: '700', fontSize: 16 }}>Naviguer vers le dépôt</Text>
-            </Pressable>
+            {returnsHome ? (
+              <>
+                <Text style={[styles.cardTitle, { color: c.text }]}>
+                  {done ? 'Tournée terminée' : 'Puis'} : {startedHere ? 'retour à votre point de départ' : 'retour au dépôt'}
+                </Text>
+                <Text style={[styles.body, { color: c.sub }]}>
+                  {startedHere ? 'Point de départ' : home.label} · {formatDuration(load.route.plan.drive_back_s)} de route
+                </Text>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => openNavigation(home.lat, home.lon)}
+                  style={[styles.smallButton, { borderColor: c.line }]}
+                >
+                  <Text style={{ color: c.text, fontWeight: '700', fontSize: 16 }}>
+                    {startedHere ? 'Naviguer vers le point de départ' : 'Naviguer vers le dépôt'}
+                  </Text>
+                </Pressable>
+              </>
+            ) : (
+              <Text style={[styles.cardTitle, { color: c.text }]}>
+                {done ? 'Tournée terminée' : 'La tournée se termine au dernier arrêt'}
+              </Text>
+            )}
             <Pressable accessibilityRole="button" onPress={() => void compute()} style={styles.link}>
               <Text style={{ color: c.sub, fontSize: 14 }}>Recalculer la tournée</Text>
             </Pressable>
@@ -316,8 +362,58 @@ function Summary({ route, progress, colors: c }: { route: RouteResponse; progres
   );
 }
 
-/** « Lancer tous les arrêts » : un tap ouvre Google Maps avec la suite des arrêts et le retour au dépôt. */
-function TourLauncher({ urls, stops, colors: c }: { urls: string[]; stops: number; colors: ReturnType<typeof palette> }) {
+/** Deux choix qui changent le calcul : d'où part la tournée, et si elle revient au départ. */
+function TourOptions({
+  startFromGps,
+  returnToDepot,
+  disabled,
+  onChange,
+  colors: c,
+}: {
+  startFromGps: boolean;
+  returnToDepot: boolean;
+  disabled: boolean;
+  onChange: (patch: Partial<Pick<Settings, 'startFromGps' | 'returnToDepot'>>) => void;
+  colors: ReturnType<typeof palette>;
+}) {
+  const start = startFromGps ? 'ma position' : 'dépôt';
+  const back = returnToDepot ? 'oui' : 'non';
+  return (
+    <View style={styles.options}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Départ : ${start}. Appuyer pour changer.`}
+        disabled={disabled}
+        onPress={() => onChange({ startFromGps: !startFromGps })}
+        style={[styles.chip, { borderColor: c.line }, disabled && styles.disabled]}
+      >
+        <Text style={[styles.chipText, { color: c.text }]}>Départ : {start}</Text>
+      </Pressable>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Retour au départ : ${back}. Appuyer pour changer.`}
+        disabled={disabled}
+        onPress={() => onChange({ returnToDepot: !returnToDepot })}
+        style={[styles.chip, { borderColor: c.line }, disabled && styles.disabled]}
+      >
+        <Text style={[styles.chipText, { color: c.text }]}>Retour au départ : {back}</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+/** « Lancer tous les arrêts » : un tap ouvre Google Maps avec la suite des arrêts (et le retour au départ si la tournée est fermée). */
+function TourLauncher({
+  urls,
+  stops,
+  returns,
+  colors: c,
+}: {
+  urls: string[];
+  stops: number;
+  returns: boolean;
+  colors: ReturnType<typeof palette>;
+}) {
   const [only] = urls;
   if (urls.length === 1 && only) {
     return (
@@ -332,7 +428,9 @@ function TourLauncher({ urls, stops, colors: c }: { urls: string[]; stops: numbe
             Lancer {stops > 1 ? `les ${stops} arrêts` : 'le dernier arrêt'} dans Google Maps
           </Text>
         </Pressable>
-        <Text style={[styles.launchNote, { color: c.sub }]}>Dans l'ordre, puis retour au dépôt. Appuyez sur « Démarrer » dans Maps.</Text>
+        <Text style={[styles.launchNote, { color: c.sub }]}>
+          {returns ? "Dans l'ordre, puis retour au départ." : "Dans l'ordre, sans retour."} Appuyez sur « Démarrer » dans Maps.
+        </Text>
       </View>
     );
   }
@@ -503,6 +601,9 @@ const styles = StyleSheet.create({
   warnTitle: { fontSize: 16, fontWeight: '800' },
   smallButton: { minHeight: 48, borderWidth: 2, borderRadius: 12, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
   link: { minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+  options: { flexDirection: 'row', gap: 8, marginTop: 10 },
+  chip: { flex: 1, minHeight: 44, borderWidth: 2, borderRadius: 12, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
+  chipText: { fontSize: 14, fontWeight: '700', textAlign: 'center' },
   launcher: { gap: 6, marginTop: 10 },
   launchRow: { flexDirection: 'row', gap: 8 },
   launchButton: { minHeight: 52, borderRadius: 14, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 },

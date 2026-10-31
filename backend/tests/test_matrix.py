@@ -133,3 +133,18 @@ async def test_builder_end_to_end_with_unreachable_pairs():
     assert hm.arc_type_matrix().dtype.kind == "U" and hm.arc_type_matrix()[1, 2] == "WALK_SHORTCUT"
     assert hm.van_int.dtype == np.int64 and hm.hybrid_int.dtype == np.int64
     assert hm.numpy_ms >= 0 and hm.osrm_ms >= 0 and hm.total_ms >= hm.osrm_ms
+
+
+async def test_builder_open_tour_makes_returning_to_the_depot_free():
+    client = httpx.AsyncClient(transport=fake_osrm_transport())
+    osrm = OSRMClient(client, "http://osrm", timeout_s=1.0, max_table_size=100)
+    builder = HybridMatrixBuilder(osrm, Settings())
+    lat = np.array([53.80, 53.82, 53.84, 53.86])
+    lon = np.array([-1.55, -1.55, -1.55, -1.55])
+    async with client:
+        closed = await builder.build(lat, lon)
+        opened = await builder.build(lat, lon, return_to_depot=False)
+    assert (closed.m_van[1:, 0] > 0).all()
+    assert (opened.m_van[:, 0] == 0).all() and (opened.van_int[:, 0] == 0).all() and (opened.hybrid_int[:, 0] == 0).all()
+    assert (opened.m_van[:, 1:] == closed.m_van[:, 1:]).all()  # le reste de la matrice ne change pas
+

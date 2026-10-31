@@ -41,7 +41,7 @@ export function SettingsScreen({ firstRun, onClose }: SettingsScreenProps): Reac
       return null;
     }
     setError(null);
-    return { serverUrl: url.url, apiKey: apiKey.trim(), depot: { lat, lon, label: depotLabel.trim() || 'Dépôt' } };
+    return { ...saved, serverUrl: url.url, apiKey: apiKey.trim(), depot: { lat, lon, label: depotLabel.trim() || 'Dépôt' } };
   };
 
   const test = async () => {

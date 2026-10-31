@@ -258,13 +258,14 @@ def create_app(
 
         # 2. Matrices (OSRM + NumPy) puis 3. solveur + regroupement.
         try:
-            hm = await svc.matrix.build(lat, lon)
+            hm = await svc.matrix.build(lat, lon, return_to_depot=req.options.return_to_depot)
         except OSRMError as exc:
             raise HTTPException(status_code=503, detail=f"moteur routier indisponible: {exc}") from exc
         outcome = await svc.engine.plan(hm, metas, time_limit_ms=req.options.time_limit_ms)
 
         body = outcome.to_dict()
         body["depot"] = {"lat": req.depot.lat, "lon": req.depot.lon, "label": req.depot.label}
+        body["return_to_depot"] = req.options.return_to_depot
         body["unresolved"] = unresolved
         body["matrix"] = {
             "size": hm.size,
@@ -328,6 +329,7 @@ class StopIn(BaseModel):
 
 class OptionsIn(BaseModel):
     time_limit_ms: int = Field(default=150, ge=20, le=1000)
+    return_to_depot: bool = True  # False : tournée ouverte, elle s'arrête au dernier arrêt (pas de retour au point de départ)
 
 
 class OptimizeRequest(BaseModel):

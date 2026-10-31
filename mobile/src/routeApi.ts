@@ -1,5 +1,5 @@
 import { buildOptimizeBody } from './routeBody';
-import { authHeaders, type Settings } from './settings';
+import { DEFAULT_SETTINGS, authHeaders, type Settings } from './settings';
 import { settingsStore } from './stores';
 import type { Depot, ExtractImageResponse, Parcel, RouteResponse } from './types';
 
@@ -45,8 +45,11 @@ async function request<T>(settings: Settings, path: string, init: RequestInit, t
   }
 }
 
-/** Optimise la tournée : géocodage groupé (cache), matrice hybride, OR-Tools, ParkingClusters. */
-export function optimizeRoute(parcels: readonly Parcel[], depot?: Depot): Promise<RouteResponse> {
+/**
+ * Optimise la tournée : géocodage groupé (cache), matrice hybride, OR-Tools, ParkingClusters.
+ * `depot` est le point de départ (le dépôt, ou la position GPS) ; `returnToDepot=false` laisse la tournée ouverte.
+ */
+export function optimizeRoute(parcels: readonly Parcel[], depot?: Depot, returnToDepot?: boolean): Promise<RouteResponse> {
   const settings = settingsStore.getSnapshot();
   return request<RouteResponse>(
     settings,
@@ -54,7 +57,7 @@ export function optimizeRoute(parcels: readonly Parcel[], depot?: Depot): Promis
     {
       method: 'POST',
       headers: authHeaders(settings, { 'Content-Type': 'application/json' }),
-      body: JSON.stringify(buildOptimizeBody(parcels, depot ?? settings.depot)),
+      body: JSON.stringify(buildOptimizeBody(parcels, depot ?? settings.depot, returnToDepot ?? settings.returnToDepot)),
     },
     20000,
   );
@@ -91,7 +94,7 @@ export interface ServerCheck {
  */
 export async function checkServer(serverUrl: string, apiKey: string): Promise<ServerCheck> {
   const t0 = Date.now();
-  const settings: Settings = { serverUrl, apiKey, depot: { lat: 0, lon: 0, label: '' } };
+  const settings: Settings = { ...DEFAULT_SETTINGS, serverUrl, apiKey };
   let health: { providers?: string[]; vision?: boolean };
   try {
     health = await request<typeof health>(settings, '/healthz', { method: 'GET' }, 15000);

@@ -3,10 +3,12 @@ import type { Depot, Parcel } from './types';
 /**
  * Corps de `POST /api/v1/optimize-route`. Les colis déjà géocodés partent avec leurs coordonnées ; les autres
  * avec leur adresse (le serveur retente le géocodage et signale ceux qu'il ne sait pas situer dans `unresolved`).
+ * `depot` est le point de départ de la tournée ; `returnToDepot=false` demande une tournée ouverte (sans retour).
  */
-export function buildOptimizeBody(parcels: readonly Parcel[], depot: Depot): Record<string, unknown> {
+export function buildOptimizeBody(parcels: readonly Parcel[], depot: Depot, returnToDepot = true): Record<string, unknown> {
   return {
     depot: { lat: depot.lat, lon: depot.lon, label: depot.label },
+    options: { return_to_depot: returnToDepot },
     stops: parcels.map((p) => {
         const stop: Record<string, unknown> = { id: p.id, label: p.label };
         if (p.lat !== undefined && p.lon !== undefined) {

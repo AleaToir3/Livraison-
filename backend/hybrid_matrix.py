@@ -158,7 +158,14 @@ class HybridMatrixBuilder:
         self._osrm = osrm
         self._s = settings
 
-    async def build(self, lat: np.ndarray, lon: np.ndarray, no_walk_nodes: tuple[int, ...] = (0,)) -> HybridMatrix:
+    async def build(
+        self,
+        lat: np.ndarray,
+        lon: np.ndarray,
+        no_walk_nodes: tuple[int, ...] = (0,),
+        return_to_depot: bool = True,
+    ) -> HybridMatrix:
+        """`return_to_depot=False` : tournée ouverte, revenir au nœud 0 ne coûte rien, donc le solveur finit où il veut."""
         t_start = time.perf_counter()
 
         async def timed_table() -> tuple[np.ndarray, float]:
@@ -179,6 +186,8 @@ class HybridMatrixBuilder:
         t = time.perf_counter()
         unreachable = ~np.isfinite(m_van_raw)
         m_van = np.where(unreachable, self._s.osrm_unreachable_cost_s, m_van_raw)
+        if not return_to_depot:
+            m_van[:, 0] = 0.0
         m_hybrid, mask = fuse_matrices(m_van, d_hav, t_walk, self._s.walk_max_distance_m, no_walk_nodes)
         van_int = np.rint(m_van).astype(np.int64)
         hybrid_int = np.rint(m_hybrid).astype(np.int64)

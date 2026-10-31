@@ -156,6 +156,16 @@ def test_optimize_route_end_to_end():
     assert body["unresolved"] == [] and body["depot"]["label"] == "Depot Leeds"
 
 
+def test_optimize_route_open_tour_does_not_drive_back():
+    with client_for() as client:
+        closed = client.post("/api/v1/optimize-route", json=route_payload(6, time_limit_ms=60)).json()
+        opened = client.post("/api/v1/optimize-route", json=route_payload(6, time_limit_ms=60, return_to_depot=False)).json()
+    assert closed["return_to_depot"] is True and closed["plan"]["drive_back_s"] > 0
+    assert opened["return_to_depot"] is False and opened["plan"]["drive_back_s"] == 0
+    assert opened["plan"]["totals"]["drive_s"] < closed["plan"]["totals"]["drive_s"]
+    assert opened["plan"]["totals"]["parcels"] == 6
+
+
 def test_optimize_route_reports_unresolved_and_accepts_explicit_coordinates():
     payload = route_payload(3)
     payload["stops"].append({"id": "gps", "lat": 53.8001, "lon": -1.5501, "label": "Colis déjà géocodé"})

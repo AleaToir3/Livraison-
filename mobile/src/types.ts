@@ -118,6 +118,8 @@ export interface RouteResponse {
     saved_pct: number;
   };
   depot: Depot;
+  /** `false` : tournée ouverte, sans retour au point de départ (absent sur une tournée enregistrée par une ancienne version). */
+  return_to_depot?: boolean;
   unresolved: string[];
   geocode?: { requested: number; cache_hits: number; unresolved: number; synthetic: number; approximate?: number };
   timings_ms: Record<string, number>;

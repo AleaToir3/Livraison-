@@ -18,7 +18,7 @@ Le livreur peut garer le van une fois et livrer plusieurs portes à pied quand c
 │   ├── hybrid_matrix.py      Haversine NumPy, client OSRM Table API, fusion WALK_SHORTCUT
 │   ├── routing_engine.py     OR-Tools, ParkingClusters, comparaison avec le van strict
 │   ├── main.py               WS /ws/scan, POST /api/v1/extract-image, POST /api/v1/optimize-route
-│   └── tests/                134 tests (dont un vrai redis-server)
+│   └── tests/                136 tests (dont un vrai redis-server)
 ├── infra/
 │   ├── docker-compose.yml    backend + redis + osrm-uk (mémoire partagée) : pile complète
 │   ├── setup_osrm_uk.sh      télécharge great-britain-latest.osm.pbf, osrm-extract, osrm-contract (CH)
@@ -68,6 +68,9 @@ cd mobile && npm install && npm run typecheck && npm test
    `M_hybrid` prend `T_walk` si `D ≤ 160 m` et `T_walk < M_van`. Le dépôt n'est jamais piéton.
 5. **Solveur.** OR-Tools, `PATH_CHEAPEST_ARC` + `GUIDED_LOCAL_SEARCH`, 150 ms.
    Il tourne dans un pool de processus : OR-Tools garde le GIL et bloquerait sinon la boucle d'événements.
+   Par défaut la tournée est **fermée** (elle revient au point de départ). Avec `options.return_to_depot = false`,
+   revenir au nœud 0 ne coûte rien dans la matrice : la tournée est **ouverte** et finit au dernier arrêt.
+   Le téléphone peut aussi envoyer sa position GPS comme point de départ (`depot`).
 6. **ParkingClusters.** Trois plans sont chiffrés avec le **retour à pied jusqu'au van**.
    Le plus court est retenu. Il ne peut donc jamais être plus long que le van strict.
 
@@ -135,7 +138,7 @@ Ce qui a été fait :
 ## Ce qui n'a PAS été vérifié
 
 - **L'app sur un appareil.** Le TypeScript passe `tsc --noEmit` en mode strict et compile avec Babel ;
-  87 tests Node couvrent la logique (parseur, client WS, anti-doublon, progression,
+  99 tests Node couvrent la logique (parseur, client WS, anti-doublon, progression,
   réglages, filtre du cadre). L'APK Android est construit par GitHub Actions. Mais la caméra, l'OCR, Skia et
   `takeSnapshot` n'ont jamais tourné sur un téléphone. L'orientation de l'instantané iOS est à valider,
   et le filtre « texte dans le cadre » suppose que ML Kit renvoie des coordonnées d'image redressée.

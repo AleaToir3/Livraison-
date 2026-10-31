@@ -4,8 +4,10 @@ import { test } from 'node:test';
 import {
   DEFAULT_SETTINGS,
   SettingsStore,
+  UK_BOUNDS,
   authHeaders,
   isConfigured,
+  isInUk,
   normalizeServerUrl,
   parseCoordinate,
   webSocketUrl,
@@ -60,11 +62,19 @@ test('SettingsStore : enregistre, recharge, ignore un contenu corrompu', async (
   const store = new SettingsStore(storage);
   let notified = 0;
   store.subscribe(() => notified++);
-  await store.save({ serverUrl: 'https://x.onrender.com', apiKey: 'k', depot: { lat: 51.5, lon: -0.1, label: 'Londres' } });
+  await store.save({
+    serverUrl: 'https://x.onrender.com',
+    apiKey: 'k',
+    depot: { lat: 51.5, lon: -0.1, label: 'Londres' },
+    startFromGps: true,
+    returnToDepot: false,
+  });
   assert.equal(notified, 1);
   const again = new SettingsStore(storage);
   assert.equal((await again.load()).depot.label, 'Londres');
   assert.equal(again.getSnapshot().serverUrl, 'https://x.onrender.com');
+  assert.equal(again.getSnapshot().startFromGps, true);
+  assert.equal(again.getSnapshot().returnToDepot, false);
 
   storage.data.set('settings:v1', '{oups');
   const broken = new SettingsStore(storage);
@@ -72,4 +82,23 @@ test('SettingsStore : enregistre, recharge, ignore un contenu corrompu', async (
   storage.data.set('settings:v1', JSON.stringify({ serverUrl: 42, apiKey: null }));
   const odd = new SettingsStore(storage);
   assert.equal((await odd.load()).serverUrl, '');
+});
+
+test('réglages enregistrés par une ancienne version : départ au dépôt, retour au départ', async () => {
+  const storage = memory();
+  storage.data.set('settings:v1', JSON.stringify({ serverUrl: 'https://x.onrender.com', apiKey: 'k' }));
+  const store = new SettingsStore(storage);
+  const loaded = await store.load();
+  assert.equal(loaded.startFromGps, false);
+  assert.equal(loaded.returnToDepot, true);
+  assert.equal(DEFAULT_SETTINGS.startFromGps, false);
+  assert.equal(DEFAULT_SETTINGS.returnToDepot, true);
+});
+
+test('isInUk : le cadre du Royaume-Uni accepté par le serveur', () => {
+  assert.equal(isInUk(52.63, -1.13), true); // Leicester
+  assert.equal(isInUk(53.7996, -1.5491), true); // dépôt par défaut
+  assert.equal(isInUk(48.85, 2.35), false); // Paris
+  assert.equal(isInUk(UK_BOUNDS.latMax + 0.01, -1.5), false);
+  assert.equal(isInUk(53.0, UK_BOUNDS.lonMax + 0.01), false);
 });
