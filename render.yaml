@@ -8,7 +8,7 @@ services:
     dockerContext: ./backend
     branch: claude/uk-delivery-route-optimizer-ginh31
     region: frankfurt # la plus proche du Royaume-Uni parmi les régions Render
-    plan: starter # 512 Mo : le serveur utilise ~250 Mo (mesuré). Le plan gratuit s'endort : à éviter pour des tests.
+    plan: free # gratuit : 512 Mo (le serveur utilise ~250 Mo), 0,1 CPU, s'endort après 15 min sans appel (le 1er appel réveille le serveur en ~1 min). Pour du vrai usage : plan: starter.
     healthCheckPath: /healthz
     autoDeploy: true
     envVars:
@@ -25,10 +25,10 @@ services:
       - key: UVICORN_WORKERS
         value: "1"
       - key: SOLVER_WORKERS
-        value: "2"
-      # 0,5 CPU partagé entre 2 résolutions : on laisse un peu plus de temps au solveur (le cahier des charges dit 150 ms).
+        value: "1" # 0,1 CPU : un seul processus de résolution suffit (et économise la mémoire)
+      # 0,1 CPU : on laisse nettement plus de temps au solveur (le cahier des charges dit 150 ms sur un vrai CPU).
       - key: SOLVER_TIME_LIMIT_MS
-        value: "300"
+        value: "1000"
       # À renseigner dans le dashboard (jamais dans Git) :
       - key: GEMINI_API_KEY
         sync: false

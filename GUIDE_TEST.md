@@ -6,7 +6,7 @@ Chaque étape dit **qui** agit : 👤 vous, 🤖 moi.
 
 1. 👤 Créez un compte sur **render.com** (connexion avec GitHub).
 2. 👤 Render → **New** → **Blueprint** → choisissez le dépôt `Livraison-` et la branche `claude/uk-delivery-route-optimizer-ginh31`.
-   Render lit le fichier `render.yaml` et crée le serveur tout seul. Il demande une carte bancaire (plan *Starter*, environ 7 $/mois, résiliable).
+   Render lit le fichier `render.yaml` et crée le serveur tout seul. Le plan est *Free* (gratuit) : le serveur s'endort après 15 min sans appel, et le premier appel du jour met environ 1 min à répondre (relancez « Tester la connexion »). Pour un vrai usage, mettez `plan: starter` dans `render.yaml` (environ 7 $/mois, carte demandée).
 3. 👤 Attendez que le service passe à **Live** (5 à 10 min la première fois).
 4. 👤 Ouvrez `https://VOTRE-SERVEUR.onrender.com/healthz` (l'adresse est en haut de la page du service).
    Vous devez voir `"status":"ok"`.
